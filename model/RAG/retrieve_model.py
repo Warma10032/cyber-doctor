@@ -66,8 +66,8 @@ class Retrievemodel(Modelbase):
         self._data_path = Config.get_instance().get_with_nested_params(
             "Knowledge-base-path"
         )
-        if not os.path.exists(self._embedding_model_path):
-            os.makedirs(self._embedding_model_path)
+        if not os.path.exists(self._data_path):
+            os.makedirs(self._data_path)
         self._user_retrievers = {}
 
 

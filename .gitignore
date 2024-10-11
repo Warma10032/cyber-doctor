@@ -9,7 +9,6 @@ migrations/
 flagged/
 project/settings.py
 
-data/cache/
+data/
 user_data/
 config/config-local.yaml
-data/retriever
