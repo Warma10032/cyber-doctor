@@ -1,0 +1,15 @@
+__pycache__/
+
+migrations/
+!migrations/__init__.py
+
+.conda
+.env
+.vscode/
+flagged/
+project/settings.py
+
+data/cache/
+user_data/
+config/config-local.yaml
+data/retriever

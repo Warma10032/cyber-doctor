@@ -1,0 +1,31 @@
+cache:
+  node:
+    fields:
+      - name
+  async: thread
+
+# 知识库目录，目录下放知识库的文件，如各种.pdf, .word文件
+Knowledge-base-path: 
+
+model:
+  graph-entity:
+    # 知识图谱中检索实体时的搜索主键，即匹配这个键对应的值，一般为“名称”或"name"
+    search-key: '名称'
+  embedding: 
+    # 知识库用于自然语言（文本）处理的modelscope模型路径
+    model-path: C:\Users\<name>\.cache\modelscope\hub\
+    # modelscope模型名称和版本，注意斜杠方向
+    model-name: iic/nlp_corom_sentence-embedding_chinese-base
+    model-version: v1.1.0
+    device: cpu
+
+database:
+  neo4j:
+    url: bolt://localhost:7687
+    database: neo4j
+    username: neo4j
+    # 注意数字用引号引起来
+    password: 
+    # 定义你的数据库存在的节点标签和关系类型，用于检索
+    node-label: ['一级科室', '二级科室', '其他',"检查手段","治疗方案","生产商","疾病","症状","药物","食物","食谱"]
+    relationship-type: ['好评药物', '宜吃', '属于', '常用药物', '并发症','忌吃','所属科室','推荐食谱','治疗方法','生产药品','症状','诊断建议']
