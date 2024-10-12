@@ -1,3 +1,4 @@
+'''枚举可能用到的模型状态'''
 from enum import Enum
 
 

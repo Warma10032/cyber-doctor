@@ -1,3 +1,4 @@
+'''大模型特征工程，提取搜索关键词'''
 from typing import List, Dict
 from client.clientfactory import Clientfactory
 

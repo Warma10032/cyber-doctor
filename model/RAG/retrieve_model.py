@@ -1,3 +1,4 @@
+'''本地知识库的RAG检索模型类'''
 from model.model_base import Modelbase
 from model.model_base import ModelStatus
 from config.config import Config

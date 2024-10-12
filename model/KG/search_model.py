@@ -1,15 +1,11 @@
+'''知识库的实体检索模型类'''
 from typing import Tuple, Optional, List,Dict
-
 from model.model_base import Modelbase
 from model.model_base import ModelStatus
 
 import ahocorasick as pyahocorasick
 from config.config import Config
 from model.KG.data_utils import NodeEntities
-
-from collections import namedtuple
-
-
 
 class EntitySearcher(Modelbase):
 

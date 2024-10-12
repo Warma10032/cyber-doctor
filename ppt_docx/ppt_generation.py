@@ -1,15 +1,12 @@
+'''将大模型生成的json数据转换为ppt，可修改代码自定义ppt的样式'''
 import datetime
 import hashlib
 import os
 import time
-import re
-from pptx.util import Pt
-from pptx.util import Inches
-from pptx.enum.text import MSO_AUTO_SIZE
+
 
 from pptx.oxml.ns import qn
 from typing import Dict
-from icecream import ic
 from pptx import Presentation
 from env import get_app_root
 

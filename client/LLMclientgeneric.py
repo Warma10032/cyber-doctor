@@ -1,3 +1,4 @@
+'''封装调用大模型代理的API接口的函数'''
 from typing import List, Dict
 
 from openai.types.chat import ChatCompletion, ChatCompletionChunk

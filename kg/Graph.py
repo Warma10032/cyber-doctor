@@ -1,3 +1,4 @@
+'''实例化知识图谱对象'''
 from config.config import Config
 from py2neo import Graph, NodeMatcher, RelationshipMatcher, ConnectionUnavailable
 

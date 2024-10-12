@@ -1,3 +1,4 @@
+'''问答类型判断函数，根据特定输入和大模型进行分类分类。'''
 from typing import List, Dict
 
 from client.clientfactory import Clientfactory

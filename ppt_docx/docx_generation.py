@@ -1,8 +1,8 @@
+'''将大模型生成的json数据转换为word，可修改代码自定义word的样式'''
 import os
 import re
 import hashlib
 import time
-import datetime
 from docx import Document
 from docx.shared import Pt
 from docx.oxml.ns import qn 

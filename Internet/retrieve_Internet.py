@@ -1,3 +1,4 @@
+'''调用model/Internet中的接口，检索搜索到的资料'''
 from typing import List,Tuple
 from langchain_core.documents import Document
 from model.Internet.Internet_service import retrieve

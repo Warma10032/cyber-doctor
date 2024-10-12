@@ -1,9 +1,10 @@
+'''存放处理不同问答类型的工具函数，核心文件'''
+
 import base64
 from typing import Callable, List, Dict, Tuple
 import time
 import json
 from client.clientfactory import Clientfactory
-from zhipuai import ZhipuAI
 from qa.purpose_type import userPurposeType
 from pathlib import Path
 from ppt_docx.ppt_generation import generate as generate_ppt

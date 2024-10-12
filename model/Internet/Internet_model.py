@@ -1,15 +1,13 @@
+'''联网搜索的RAG检索模型类'''
 from model.model_base import Modelbase
 from model.model_base import ModelStatus
 
 import os
-
 from env import get_app_root
 
 from langchain_community.embeddings import ModelScopeEmbeddings
-
 from langchain_core.vectorstores import VectorStoreRetriever
 from langchain_community.document_loaders import DirectoryLoader, MHTMLLoader, UnstructuredHTMLLoader
-
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores.faiss import FAISS
 
