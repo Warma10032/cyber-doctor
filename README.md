@@ -1,4 +1,6 @@
-<img src="README/bot.jpg" style="zoom: 25%;" />
+<div align="center">
+ <img src="README/bot.jpg" width="200" />
+</div>
 
 
 <h1 align="center">「赛博华佗」🩺 cyber-doctor 你的健康小管家</h1>
