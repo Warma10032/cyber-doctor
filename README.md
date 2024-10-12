@@ -1,4 +1,4 @@
-![](README/bot.jpg)
+<img src="README/bot.jpg" style="zoom: 25%;" />
 
 
 <h1 align="center">「赛博华佗」🩺 cyber-doctor 你的健康小管家</h1>
@@ -218,7 +218,7 @@ Option：
       The loaded database 'neo4j' is not on a supported version (current format: AF4.3.0 introduced in 4.3.0). Use the 'neo4j-admin database migrate' command
       ```
    
-       还需要运行如下命令
+      还需要运行如下命令
    
       ```
       neo4j-admin database migrate <database-name>
