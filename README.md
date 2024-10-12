@@ -1,6 +1,20 @@
+## ![](README/bot.jpg)
+
+# 「赛博华佗」🩺 cyber-doctor 你的健康小管家
+
+------
+
+
+
+## 项目演示视频
+
+https://www.bilibili.com/video/BV1CU2aYpEn2
+
+
+
 ## 项目背景
 
-当前多模态大语言模型不断发展，在许多领域都有了不错的应用。我们小组基于东南大学暑期实训课程，开发了一个医疗健康领域的多模态大模型，这个大模型的目标用户是所有对自己健康关心的人。本项目狭义上可以作为一个多功能的健康小助手，帮助管理个人健康，提供基础的医疗建议；广义上可以配置在任何领域，通过微调的大模型和RAG技术让大模型掌握目标领域的专业知识，成为任意专业的专家。
+医疗资源不平衡一直以来是社会关注的重点问题，它导致众多医疗不公平事件发生。在相对落后地区的人们想要获得优秀的医疗资源往往需要前往一线城市，这不仅费时费力费钱，而且极大的影响了他们的接受医疗救助的基本权利。当前多模态大语言模型不断发展，在许多领域都有了不错的应用。我们小组基于东南大学暑期实训课程，开发了一个医疗健康领域的多模态大模型，这个大模型的目标用户是所有对自己健康关心的人，帮助进行基本的疾病诊断，病历分析，专业知识答疑等功能。本项目狭义上可以作为一个多功能的健康小助手，帮助管理个人健康，提供基础的医疗建议；广义上可以配置在任何领域，通过微调的大模型和RAG技术让大模型掌握目标领域的专业知识，成为任意专业的专家。
 
 
 
@@ -186,7 +200,7 @@ Option：
       neo4j-admin database load <database-name> --from-path=/path/to/dump-folder/ --overwrite-destination=true
       ```
    
-      `--from-path`：存放对应database-name.dump文件的文件夹路径
+      `--from-path`：存放对应"database-name".dump文件的文件夹路径
    
       `--overwrite-destination`：**注意会覆盖你原先数据库中的数据**
    
@@ -196,7 +210,7 @@ Option：
       The loaded database 'neo4j' is not on a supported version (current format: AF4.3.0 introduced in 4.3.0). Use the 'neo4j-admin database migrate' command
       ```
    
-      还需要运行如下命令
+       还需要运行如下命令
    
       ```
       neo4j-admin database migrate <database-name>
