@@ -56,6 +56,10 @@
 
 ![](README/PPT&Word展示.png)
 
+### 知识图谱检索增强：
+
+![](README/知识图谱检索.png)
+
 ### 联网检索增强：
 
 ![](README/联网搜索.png)
@@ -143,17 +147,21 @@ Option：
 
 1. **下载Neo4j图数据库（使用知识图谱检索增强功能的必要条件）**
 
-   推荐教程：[Windows系统下Neo4j安装教程——CSDN博客](https://blog.csdn.net/jing_zhong/article/details/112557084)
+   推荐教程：
 
-   ​                   [Docker化部署Neo4j](https://cloud.baidu.com/article/3314714)
+   - [Windows系统下Neo4j安装教程——CSDN博客](https://blog.csdn.net/jing_zhong/article/details/112557084)
    
-   提醒：免费的社区版即可，能创建一个图数据库
+   - [Docker化部署Neo4j](https://cloud.baidu.com/article/3314714)
    
-   ​			创建时记住用户名和密码
+   提醒：
    
-   ​			填写config/config-web.yaml配置文件
+   - 免费的社区版即可，能创建一个图数据库
    
-   ​			记得启动Neo4j服务
+   - 创建时记住用户名和密码
+   
+   - 填写config/config-web.yaml配置文件
+   
+   - 记得启动Neo4j服务
    
 2. **配置一个专业领域的图数据库**
 
@@ -247,6 +255,7 @@ Option：
 ## 贡献者
 
 感谢以下成员对项目的贡献
+
 团队成员：
 
 - [YM](https://github.com/YM556)
