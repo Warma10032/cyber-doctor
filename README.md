@@ -1,8 +1,16 @@
 ## ![](README/bot.jpg)
 
-# 「赛博华佗」🩺 cyber-doctor 你的健康小管家
+
+<h1 align="center">「赛博华佗」🩺 cyber-doctor 你的健康小管家</h1>
+
 
 ------
+
+![](https://img.shields.io/github/stars/Warma10032/cyber-doctor?style=social)
+![](https://img.shields.io/github/forks/Warma10032/cyber-doctor?style=social)
+![](https://img.shields.io/github/contributors/Warma10032/cyber-doctor)
+![](https://img.shields.io/github/issues/Warma10032/cyber-doctor)
+![](README/License-GPLv3-blue.svg)
 
 
 
