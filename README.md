@@ -1,4 +1,4 @@
-## ![](README/bot.jpg)
+![](README/bot.jpg)
 
 
 <h1 align="center">「赛博华佗」🩺 cyber-doctor 你的健康小管家</h1>
