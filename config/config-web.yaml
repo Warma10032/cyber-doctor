@@ -14,7 +14,7 @@ model:
   # 编码模型配置，仅在要使用知识库功能时需要配置
   embedding: 
     # 知识库用于自然语言（文本）处理的modelscope模型路径，windows下默认安装路径如下
-    model-path: C:\Users\<your username>\.cache\modelscope\hub\
+    model-path: C:/Users/<your username>/.cache/modelscope/hub/
     # modelscope模型名称和版本，可在modelscope官网查看，会自动下载，注意斜杠方向”/“
     model-name: iic/nlp_corom_sentence-embedding_chinese-base
     model-version: v1.1.0
