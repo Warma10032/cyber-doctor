@@ -181,16 +181,15 @@ Option：
       `--overwrite-destination`：**注意会覆盖你原先数据库中的数据**
    4. 若运行上面的命令后输出
 
-   ```
-   The loaded database 'neo4j' is not on a supported version (current format: AF4.3.0 introduced in 4.3.0). Use the 'neo4j-admin database migrate' command
-   ```
+      ```
+      The loaded database 'neo4j' is not on a supported version (current format: AF4.3.0 introduced in 4.3.0). Use the 'neo4j-admin database migrate' command
+      ```
 
-   还需要运行如下命令
+      还需要运行如下命令
 
-   ```
-   neo4j-admin database migrate <database-name>
-   ```
-
+      ```
+      neo4j-admin database migrate 
+      ```
    5. 启动neo4j服务
 
       ```
@@ -200,32 +199,81 @@ Option：
 
 ## 项目结构
 
-| 文件                            | 描述                                                                                                                                     |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **app.py**                | **项目启动文件。包含构建gradio界面，处理界面中的多模态信息等函数。可以更改stt模型，自定义gradio界面**                              |
-| env.py                          | 封装读取.env文件的接口                                                                                                                   |
-| audio                           | 存放所有与音频生成相关的文件                                                                                                             |
-| /audio_extract.py               | 大模型特征工程，提取要进行tts的文本和语种                                                                                                |
-| /audio_generate.py              | 封装调用edge-tts接口                                                                                                                     |
-| client                          | 存放大模型代理（用户与大模型API之间的桥梁）生成的相关文件                                                                                |
-| **/clientfactory.py**     | **封装构建不同大模型代理的接口，构建完成后返回一个大模型代理**                                                                     |
-| **/LLMclientgeneric.py**  | **封装调用大模型代理的API接口的函数**                                                                                              |
-| config                          | 存放进一步的配置文件                                                                                                                     |
-| Internet                        | 存放联网搜索增强相关的文件                                                                                                               |
-| /Internet_prompt.py             | 大模型特征工程，提取搜索关键词                                                                                                           |
-| /retrieve_Internet.py           | 调用model/Internet中的接口，检索搜索到的资料                                                                                             |
-| /Internet_chain.py              | 联网搜索链，调用了上面两个文件中的函数，先提取关键词，再搜索爬取，最后检索。                                                             |
-| kg/Graph.py                     | 实例化知识图谱对象                                                                                                                       |
-| model                           | 存放检索增强相关的文件，包括联网RAG、知识库RAG的向量库的构建，知识图谱RAG的匹配自动机的构建                                              |
-| **/*_model.py**           | **各种检索模型类的定义**                                                                                                           |
-| /*_service.py                   | 向外部提供检索模型的接口                                                                                                                 |
-| ppt_docx                        | 存放ppt/word生成相关的文件                                                                                                               |
-| /*_content.py                   | 大模型特征工程，让大模型输出json格式的数据                                                                                               |
-| /*_generation.py                | 将大模型生成的json数据转换为ppt/word，可修改代码自定义ppt/word的样式                                                                     |
-| **qa**                    | **存放问答交互相关的文件，连接app.py与相关功能模块，项目核心**                                                                     |
-| **qa/answer.py**          | **根据问答类型选择对应的工具函数进行处理**                                                                                         |
-| **qa/function_tool.py**   | **存放处理不同问答类型的工具函数，核心文件**                                                                                       |
-| **qa/question_parser.py** | **问答类型判断函数，根据输入关键词和大模型进行分类。eg：“根据知识库...”，“根据知识图谱...”，“联网搜索...”，“生成word...“** |
+```
+cyber-doctor/
+├── .env                            # 环境配置文件，存储API密钥、模型配置等敏感信息
+├── .env.example                    # 环境配置文件示例，展示需要配置的环境变量
+├── .gitignore                      # Git版本控制忽略文件配置
+├── LICENSE                         # 项目许可证文件
+├── README.md                       # 项目中文说明文档
+├── README_en.md                    # 项目英文说明文档
+├── __init__.py                     # Python包初始化文件
+├── app.py                          # 项目启动文件，构建Gradio界面，处理多模态信息，可自定义ASR模型和界面
+├── env.py                          # 封装读取.env文件的接口
+├── requirements.txt                # 项目依赖包列表
+├── Internet/                       # 联网搜索相关功能模块
+│   ├── __init__.py                   # 包初始化文件
+│   ├── Internet_chain.py             # 联网搜索链，协调关键词提取、搜索爬取和检索过程
+│   ├── Internet_prompt.py            # 大模型特征工程，提取搜索关键词
+│   └── retrieve_Internet.py          # 调用model/Internet接口检索搜索结果
+├── README/                         # 存放项目文档相关资源
+├── audio/                          # 音频处理相关功能模块
+│   ├── __init__.py                   # 包初始化文件
+│   ├── audio_extract.py              # 大模型特征工程，提取TTS目标文本和语种
+│   └── audio_generate.py             # 封装调用edge-tts语音合成接口
+├── client/                         # 大模型客户端模块，作为用户与API的桥梁
+│   ├── __init__.py                   # 包初始化文件
+│   ├── LLMclientbase.py              # 大模型客户端基类定义
+│   ├── LLMclientgeneric.py           # 封装调用大模型API接口进行对话生成的通用函数
+│   ├── clientfactory.py              # 封装构建不同大模型客户端的工厂类
+│   ├── ourAPI/                       # 自定义API接口实现
+│   │   ├── __init__.py                 # 包初始化文件
+│   │   └── client.py                   # 自定义API客户端实现
+│   └── zhipuAPI/                     # 智谱AI API接口实现
+│       ├── __init__.py                 # 包初始化文件
+│       └── client.py                   # 智谱AI客户端实现
+├── config/                         # 配置文件目录
+│   ├── __init__.py                   # 包初始化文件
+│   ├── config-web.yaml               # 不同(Web)开发环境下的应用配置文件
+│   └── config.py                     # 配置加载和处理模块
+├── kg/                             # 知识图谱相关功能模块
+│   └── Graph.py                      # 知识图谱对象实现
+├── model/                          # 检索功能使用到的模型相关功能模块，包括联网RAG、知识库RAG、知识图谱RAG
+│   ├── __init__.py                   # 包初始化文件
+│   ├── model_base.py                 # 模型基类定义
+│   ├── Internet/                     # 联网RAG向量库实现
+│   │   ├── __init__.py                 # 包初始化文件
+│   │   ├── Internet_model.py           # 构建联网RAG向量库
+│   │   └── Internet_service.py         # 联网RAG向量库接口
+│   ├── KG/                           # 知识图谱RAG的匹配自动机实现
+│   │   ├── __init__.py                 # 包初始化文件
+│   │   ├── data_utils.py               # 知识图谱数据处理工具
+│   │   ├── search_model.py             # 构建知识图谱RAG的匹配自动机
+│   │   └── search_service.py           # 知识图谱RAG的匹配自动机接口
+│   └── RAG/                          # 知识库RAG向量库实现
+│       ├── __init__.py                 # 包初始化文件
+│       ├── retrieve_model.py           # 构建知识库RAG向量库
+│       └── retrieve_service.py         # 知识库RAG向量库接口
+├── ppt_docx/                       # PPT和Word文档生成模块
+│   ├── docx_content.py               # 大模型生成Word内容
+│   ├── docx_generation.py            # Word内容转换为Word文档
+│   ├── ppt_content.py                # 大模型生成PPT内容
+│   └── ppt_generation.py             # PPT内容转换为PPT文档
+├── qa/                             # 问答系统核心模块
+│   ├── __init__.py                   # 包初始化文件
+│   ├── answer.py                     # 根据问题类型选择对应的工具函数生成回答
+│   ├── function_tool.py              # 工具函数集合
+│   ├── prompt_templates.py           # 提示词模板定义
+│   ├── purpose_type.py               # 问题类型定义
+│   └── question_parser.py            # 问题类型解析判断
+├── rag/                            # 检索增强生成模块
+│   ├── __init__.py                   # 包初始化文件
+│   ├── rag_chain.py                  # RAG链式调用实现
+│   └── retrieve/                     # 检索功能实现
+│       ├── __init__.py                 # 包初始化文件
+│       └── retrieve_document.py        # 文档检索实现
+└── resource/                       # 资源文件目录，存放图片等静态资源
+```
 
 ## 项目现状
 
@@ -256,3 +304,13 @@ Option：
 本项目参考了以下开源项目，感谢他／她们的付出
 
 - [meet-libai](https://github.com/BinNong/meet-libai)
+
+## Star History
+
+<a href="https://star-history.com/#warma10032/cyber-doctor&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=warma10032/cyber-doctor&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=warma10032/cyber-doctor&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=warma10032/cyber-doctor&type=Date" />
+ </picture>
+</a>
