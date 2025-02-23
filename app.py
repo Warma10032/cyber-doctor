@@ -477,7 +477,7 @@ with gr.Blocks() as demo:
                     {"left": "$$", "right": "$$", "display": True},
                     {"left": "$", "right": "$", "display": True},
                 ],
-                placeholder="\n## 欢迎与我对话 \n————本项目开源地址https://github.com/Warma10032/Django",
+                placeholder="\n## 欢迎与我对话 \n————本项目开源地址https://github.com/Warma10032/cyber-doctor",
             )
 
     with gr.Row():
