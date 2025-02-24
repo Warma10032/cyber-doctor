@@ -5,7 +5,7 @@ cache:
   async: thread
 
 # 知识库目录，目录下放知识库的文件，如各种.pdf, .word文件
-Knowledge-base-path: 
+Knowledge-base-path: ./konwledge-base
 
 model:
   graph-entity:
@@ -13,7 +13,7 @@ model:
     search-key: 名称
   # 编码模型配置，仅在要使用知识库功能时需要配置
   embedding: 
-    # 知识库用于自然语言（文本）处理的modelscope模型路径，windows下默认安装路径如下
+    # 构建知识库时用于文本向量化的modelscope模型路径，windows下默认安装路径如下，设置为其他路径会重新下载到该路径
     model-path: C:/Users/<your username>/.cache/modelscope/hub/
     # modelscope模型名称和版本，可在modelscope官网查看，会自动下载，注意斜杠方向”/“
     model-name: iic/nlp_corom_sentence-embedding_chinese-base
