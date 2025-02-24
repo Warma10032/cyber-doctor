@@ -113,16 +113,16 @@ Option：
 
    1. 所有支持OpenAI SDK接口的API，包括
       - [智谱AI](https://open.bigmodel.cn/)
-   - [豆包大模型](https://www.volcengine.com/experience/ark?utm_term=202502dsinvite&ac=DSASUQY5&rc=II9TBGSX)
+      - [豆包大模型](https://www.volcengine.com/experience/ark?utm_term=202502dsinvite&ac=DSASUQY5&rc=II9TBGSX)
       - [硅基流动集成平台](https://cloud.siliconflow.cn/i/VWOdVvvM)
-   - [deepseek](https://platform.deepseek.com/)
+      - [deepseek](https://platform.deepseek.com/)
       - [千问Qwen](https://bailian.console.aliyun.com/)
-2. Ollama封装的本地API
-   
+   2. Ollama封装的本地API
+
 如果你还未申请API，欢迎通过我的邀请链接进行注册获取新人试用额度。
-   
+
    由于团队本身缺少申请/测试多家API的能力，可能会有各种bug，**欢迎各位提出相关的issue和PR一起来解决API适配问题，你的行动是对开源社区最大的帮助。**
-   
+
 3. **填写 `config/config-web.yaml`配置文件**
 
 4. **创建python环境（python>=3.10，建议为3.10）**
