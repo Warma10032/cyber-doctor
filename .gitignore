@@ -12,3 +12,4 @@ project/settings.py
 data/
 user_data/
 config/config-local.yaml
+project_structure.txt
