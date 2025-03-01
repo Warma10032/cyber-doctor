@@ -314,13 +314,18 @@ def gradio_audio_view(chatbot, audio_input):
             chunk_content = chunk.choices[0].delta.content or ""
             bot_response += chunk_content
 
-        chatbot[-1][1] = (
-            audio_generate(
-                text=bot_response,
-                model_name="zh-CN-YunxiNeural",
-            ),
-            "audio",
-        )
+        try:
+            chatbot[-1][1] = (
+                audio_generate(
+                    text=bot_response,
+                    model_name="zh-CN-YunxiNeural",
+                ),
+                "audio",
+            )
+        except Exception as e:
+            print(f"音频生成失败，直接返回文本: {str(e)}")
+            chatbot[-1][1] = bot_response 
+            
         yield chatbot
 
     # 处理图片生成
@@ -345,13 +350,16 @@ def gradio_audio_view(chatbot, audio_input):
         if answer[0] is not None:
             chatbot[-1][1] = answer[0]
         else:
-            chatbot[-1][1] = (
-                audio_generate(
-                    text="抱歉，视频生成失败，请稍后再试",
-                    model_name="zh-CN-YunxiNeural",
-                ),
-                "audio",
-            )
+            try:
+                chatbot[-1][1] = (
+                    audio_generate(
+                        text="抱歉，视频生成失败，请稍后再试",
+                        model_name="zh-CN-YunxiNeural",
+                    ),
+                    "audio",
+                )
+            except Exception as e:
+                chatbot[-1][1] = "抱歉，视频生成失败，请稍后再试"
         yield chatbot
 
     # 处理PPT
@@ -359,13 +367,16 @@ def gradio_audio_view(chatbot, audio_input):
         if answer[0] is not None:
             chatbot[-1][1] = answer[0]
         else:
-            chatbot[-1][1] = (
-                audio_generate(
-                    text="抱歉，PPT生成失败，请稍后再试",
-                    model_name="zh-CN-YunxiNeural",
-                ),
-                "audio",
-            )
+            try:
+                chatbot[-1][1] = (
+                    audio_generate(
+                        text="抱歉，PPT生成失败，请稍后再试",
+                        model_name="zh-CN-YunxiNeural",
+                    ),
+                    "audio",
+                )
+            except Exception as e:
+                chatbot[-1][1] = "抱歉，PPT生成失败，请稍后再试"
         yield chatbot
 
     # 处理Docx
@@ -373,13 +384,16 @@ def gradio_audio_view(chatbot, audio_input):
         if answer[0] is not None:
             chatbot[-1][1] = answer[0]
         else:
-            chatbot[-1][1] = (
-                audio_generate(
-                    text="抱歉，文档生成失败，请稍后再试",
-                    model_name="zh-CN-YunxiNeural",
-                ),
-                "audio",
-            )
+            try:
+                chatbot[-1][1] = (
+                    audio_generate(
+                        text="抱歉，文档生成失败，请稍后再试",
+                        model_name="zh-CN-YunxiNeural",
+                    ),
+                    "audio",
+                )
+            except Exception as e:
+                chatbot[-1][1] = "抱歉，文档生成失败，请稍后再试"
         yield chatbot
 
     # 处理音频生成
@@ -387,13 +401,16 @@ def gradio_audio_view(chatbot, audio_input):
         if answer[0] is not None:
             chatbot[-1][1] = answer[0]
         else:
-            chatbot[-1][1] = (
-                audio_generate(
-                    text="抱歉，音频生成失败，请稍后再试",
-                    model_name="zh-CN-YunxiNeural",
-                ),
-                "audio",
-            )
+            try:
+                chatbot[-1][1] = (
+                    audio_generate(
+                        text="抱歉，音频生成失败，请稍后再试",
+                        model_name="zh-CN-YunxiNeural",
+                    ),
+                    "audio",
+                )
+            except Exception as e:
+                chatbot[-1][1] = "抱歉，音频生成失败，请稍后再试"
         yield chatbot
 
     # 处理联网搜索
@@ -408,13 +425,17 @@ def gradio_audio_view(chatbot, audio_input):
             chunk_content = chunk.choices[0].delta.content or ""
             bot_response += chunk_content
 
-        chatbot[-1][1] = (
-            audio_generate(
-                text=bot_response,
-                model_name="zh-CN-YunxiNeural",
-            ),
-            "audio",
-        )
+        try:
+            chatbot[-1][1] = (
+                audio_generate(
+                    text=bot_response,
+                    model_name="zh-CN-YunxiNeural",
+                ),
+                "audio",
+            )
+        except Exception as e:
+            print(f"音频生成失败，直接返回文本: {str(e)}")
+            chatbot[-1][1] = bot_response
         yield chatbot
 
 
@@ -538,7 +559,7 @@ with gr.Blocks() as demo:
 
 # 启动应用
 def start_gradio():
-    demo.launch(share=True)
+    demo.launch(server_port=10032, share=False)
 
 
 if __name__ == "__main__":
