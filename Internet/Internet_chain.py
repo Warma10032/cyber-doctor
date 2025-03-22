@@ -69,7 +69,8 @@ def search_bing(query, links, num_results=3):
     ]
     for search_url in search_urls:
         flag = 0
-        response = requests.get(search_url, headers=headers)
+        # 禁用 SSL 验证的警告
+        response = requests.get(search_url, headers=headers, verify=False)
 
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
@@ -81,7 +82,6 @@ def search_bing(query, links, num_results=3):
                 link = item.find("a")["href"].split("#")[0]  # 删除 '#' 后的部分
 
                 try:
-                    # 禁用 SSL 验证的警告
                     response = requests.get(link, timeout=10)
                     if response.status_code == 200:
                         filename = f"{_SAVE_PATH}/{title}.html"
@@ -117,7 +117,8 @@ def search_baidu(query, links, num_results=3):
     search_url = f"https://www.baidu.com/s?wd={query}"  # 百度搜索URL
 
     flag = 0
-    response = requests.get(search_url, headers=headers)
+     # 禁用 SSL 验证的警告
+    response = requests.get(search_url, headers=headers, verify=False)
 
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, "html.parser")
@@ -131,7 +132,6 @@ def search_baidu(query, links, num_results=3):
                 title = item.find("h3").text
                 link = item.find("a")["href"].split("#")[0]  # 删除 '#' 后的部分
 
-                # 禁用 SSL 验证的警告
                 response = requests.get(link, timeout=10)
 
                 if response.status_code == 200:
