@@ -322,3 +322,7 @@ cyber-doctor/
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=warma10032/cyber-doctor&type=Date" />
  </picture>
 </a>
+
+## 用户认证与权限
+
+仓库已新增基于 Django 的认证服务（支持 JWT 与可选 Redis 黑名单/刷新机制），并与 Gradio 前端完成集成。配置方法、API 列表、运行顺序等详情请参考 `docs/authentication.md`。

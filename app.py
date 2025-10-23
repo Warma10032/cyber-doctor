@@ -1,24 +1,95 @@
 import base64
-from qa.answer import get_answer
-from qa.question_parser import parse_question
-from qa.function_tool import process_image_describe_tool
-from qa.purpose_type import userPurposeType
-from audio.audio_generate import audio_generate
+import os
+import socket
+import time
+from typing import Any, Dict, List, Tuple
 
 import PyPDF2
 import chardet
-import mimetypes
 import gradio as gr
-from icecream import ic
-from docx import Document
-from pydub import AudioSegment
+import httpx
+import mimetypes
 import speech_recognition as sr
+from docx import Document
+from icecream import ic
 from opencc import OpenCC
-import os
+from pydub import AudioSegment
+
+from audio.audio_generate import audio_generate
+from env import get_env_value
+from model.RAG.retrieve_model import INSTANCE as RAG_INSTANCE
+from qa.answer import get_answer
+from qa.function_tool import process_image_describe_tool
+from qa.purpose_type import userPurposeType
+from qa.question_parser import parse_question
 
 
 AVATAR = ("resource/user.png", "resource/bot.jpg")
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+AUTH_STORAGE_KEY = "cyber-doctor-auth"
+
+JS_SAVE_AUTH = f"""
+function(auth_state) {{
+    if (auth_state && auth_state.user) {{
+        localStorage.setItem('{AUTH_STORAGE_KEY}', JSON.stringify(auth_state));
+    }} else {{
+        localStorage.removeItem('{AUTH_STORAGE_KEY}');
+    }}
+    return auth_state;
+}}
+"""
+
+JS_LOAD_AUTH = f"""
+function() {{
+    const raw = localStorage.getItem('{AUTH_STORAGE_KEY}');
+    if (!raw) {{
+        return null;
+    }}
+    try {{
+        return JSON.parse(raw);
+    }} catch (err) {{
+        console.warn('Failed to parse auth state from storage', err);
+        localStorage.removeItem('{AUTH_STORAGE_KEY}');
+        return null;
+    }}
+}}
+"""
+
+APP_CSS = """
+#auth-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 16px;
+    z-index: 1000;
+}
+#auth-modal > div {
+    width: min(420px, 100%);
+}
+#auth-modal .gr-box, #auth-modal .gr-block, #auth-modal .gr-group {
+    border-radius: 12px;
+    padding: 24px;
+}
+#layout {
+    min-height: 100vh;
+}
+#sidebar {
+    background: #f8f9fc;
+    padding: 16px;
+    gap: 12px;
+    border-right: 1px solid #e5e7eb;
+}
+#sidebar .gr-button, #sidebar .gr-select, #sidebar .gr-radio {
+    width: 100%;
+}
+#sidebar-toggle {
+    width: 48px;
+}
+"""
 
 # pip install whisper
 # pip install openai-whisper
@@ -91,14 +162,535 @@ def image_to_base64(image_path):
         return encoded_string
 
 
+def _auth_base_url() -> str:
+    base = get_env_value("AUTH_SERVER_BASE_URL") or "http://127.0.0.1:8000"
+    return base.rstrip("/")
+
+
+def _chat_base_url() -> str:
+    return f"{_auth_base_url()}/chat"
+
+
+def _default_auth_state() -> Dict[str, Any]:
+    return {
+        "user": None,
+        "access_token": None,
+        "refresh_token": None,
+        "access_expires_at": 0.0,
+        "refresh_expires_at": 0.0,
+    }
+
+
+def _is_logged_in(auth_state: Dict[str, Any]) -> bool:
+    if not auth_state:
+        return False
+    if not auth_state.get("user"):
+        return False
+    expiry = auth_state.get("access_expires_at", 0.0)
+    return expiry > time.time()
+
+
+def _auth_status_message(auth_state: Dict[str, Any]) -> str:
+    if _is_logged_in(auth_state):
+        user = auth_state["user"]
+        remaining = max(int(auth_state["access_expires_at"] - time.time()), 0)
+        return f"当前用户：**{user['username']}**（访问令牌剩余 {remaining} 秒）"
+    return "当前用户：未登录"
+
+
+def _http_request(
+    url: str,
+    *,
+    method: str = "POST",
+    json_data: Dict[str, Any] | None = None,
+    token: str | None = None,
+) -> Tuple[bool, Any]:
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        response = httpx.request(
+            method,
+            url,
+            json=json_data,
+            headers=headers,
+            timeout=10,
+            proxies=None,
+        )
+    except Exception as exc:  # pragma: no cover
+        return False, f"无法连接服务：{exc}"
+
+    if response.status_code >= 400:
+        try:
+            data = response.json()
+            detail = data.get("detail") or data
+        except ValueError:
+            detail = response.text or f"HTTP {response.status_code}"
+        return False, detail
+
+    if response.status_code == 204 or not response.content:
+        return True, {}
+
+    try:
+        return True, response.json()
+    except ValueError:
+        return False, "服务返回了无效的 JSON 响应"
+
+
+def _auth_request(
+    path: str,
+    *,
+    method: str = "POST",
+    json_data: Dict[str, Any] | None = None,
+    token: str | None = None,
+) -> Tuple[bool, Any]:
+    url = f"{_auth_base_url()}/auth/{path.lstrip('/')}"
+    return _http_request(url, method=method, json_data=json_data, token=token)
+
+
+def _chat_request(
+    path: str,
+    *,
+    method: str = "GET",
+    json_data: Dict[str, Any] | None = None,
+    token: str | None = None,
+) -> Tuple[bool, Any]:
+    url = f"{_chat_base_url()}/{path.lstrip('/')}"
+    return _http_request(url, method=method, json_data=json_data, token=token)
+
+
+def _state_from_login_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    now = time.time()
+    return {
+        "user": data.get("user"),
+        "access_token": data.get("access_token"),
+        "refresh_token": data.get("refresh_token"),
+        "access_expires_at": now + float(data.get("access_expires_in", 0)),
+        "refresh_expires_at": now + float(data.get("refresh_expires_in", 0)),
+    }
+
+
+def _resolve_user_id(auth_state: Dict[str, Any]) -> str:
+    if _is_logged_in(auth_state):
+        return str(auth_state["user"]["id"])
+    return "guest"
+
+
+def _prepare_user_context(auth_state: Dict[str, Any] | None) -> Dict[str, Any]:
+    if not auth_state:
+        auth_state = _default_auth_state()
+    user_id = _resolve_user_id(auth_state)
+    RAG_INSTANCE.set_user_id(user_id)
+    return auth_state
+
+
+def _default_chat_state() -> Dict[str, Any]:
+    return {
+        "session_id": None,
+        "sessions": [],
+        "loaded": False,
+        "session_options": {},
+    }
+
+
+def _format_session_title(conv: Dict[str, Any]) -> str:
+    title = conv.get("title") or "新会话"
+    short_id = conv.get("id", "")[:6]
+    return f"{title} ({short_id})"
+
+
+def _merge_session(chat_state: Dict[str, Any], conversation: Dict[str, Any]) -> None:
+    sessions: List[Dict[str, Any]] = chat_state.get("sessions", [])
+    existing = {item["id"]: item for item in sessions}
+    existing[conversation["id"]] = conversation
+    # 最新的会话放前面
+    chat_state["sessions"] = sorted(
+        existing.values(),
+        key=lambda item: item.get("updated_at") or "",
+        reverse=True,
+    )
+
+
+def _session_selector_update(chat_state: Dict[str, Any]) -> gr.update:
+    sessions = chat_state.get("sessions") or []
+    options: Dict[str, str] = {}
+    choices: List[str] = []
+    for conv in sessions:
+        base_label = _format_session_title(conv)
+        label = base_label
+        suffix = 2
+        while label in options:
+            label = f"{base_label} #{suffix}"
+            suffix += 1
+        options[label] = conv["id"]
+        choices.append(label)
+
+    chat_state["session_options"] = options
+    selected_label: str | None = None
+    current_id = chat_state.get("session_id")
+    if current_id:
+        for label, sid in options.items():
+            if sid == current_id:
+                selected_label = label
+                break
+    if selected_label is None and choices:
+        selected_label = choices[0]
+        chat_state["session_id"] = options[selected_label]
+
+    return gr.update(
+        choices=choices,
+        value=selected_label,
+        interactive=bool(sessions),
+    )
+
+
+def load_sessions(
+    auth_state: Dict[str, Any] | None,
+    chat_state: Dict[str, Any] | None,
+) -> Tuple[Dict[str, Any], gr.update]:
+    auth_state = auth_state or _default_auth_state()
+    chat_state = chat_state or _default_chat_state()
+    if not _is_logged_in(auth_state):
+        chat_state = _default_chat_state()
+        return chat_state, gr.update(choices=[], value=None, interactive=False)
+
+    success, payload = _chat_request("sessions/", token=auth_state.get("access_token"))
+    if not success:
+        chat_state["sessions"] = []
+        chat_state["session_id"] = None
+        chat_state["session_options"] = {}
+        return (
+            chat_state,
+            gr.update(choices=[], value=None, interactive=False),
+        )
+
+    sessions = payload.get("sessions") or []
+    chat_state["sessions"] = sessions
+    chat_state["loaded"] = True
+
+    current_id = chat_state.get("session_id")
+    if not current_id and sessions:
+        current_id = sessions[0]["id"]
+    chat_state["session_id"] = current_id
+
+    update = _session_selector_update(chat_state)
+    return chat_state, update
+
+
+def _messages_to_history(messages: List[Dict[str, Any]]) -> List[List[Any]]:
+    history: List[List[Any]] = []
+    for msg in messages:
+        sender = msg.get("sender")
+        content = msg.get("content")
+        if sender == "user":
+            history.append([content, None])
+        elif sender == "assistant":
+            if history and history[-1][1] in {None, ""}:
+                history[-1][1] = content
+            else:
+                history.append([None, content])
+    return history
+
+
+def load_messages(
+    auth_state: Dict[str, Any] | None,
+    chat_state: Dict[str, Any] | None,
+) -> Tuple[Dict[str, Any], gr.update]:
+    auth_state = auth_state or _default_auth_state()
+    chat_state = chat_state or _default_chat_state()
+
+    session_id = chat_state.get("session_id")
+    if not _is_logged_in(auth_state) or not session_id:
+        return chat_state, gr.update(value=[])
+
+    success, payload = _chat_request(
+        f"sessions/{session_id}/messages/",
+        token=auth_state.get("access_token"),
+    )
+    if not success:
+        return chat_state, gr.update(value=[])
+
+    messages = payload.get("messages") or []
+    chat_state["messages"] = messages
+    history = _messages_to_history(messages)
+    return chat_state, gr.update(value=history)
+
+
+def _create_session(
+    auth_state: Dict[str, Any] | None,
+    chat_state: Dict[str, Any] | None,
+    title: str | None = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any] | None]:
+    auth_state = auth_state or _default_auth_state()
+    chat_state = chat_state or _default_chat_state()
+    if not _is_logged_in(auth_state):
+        return chat_state, None
+
+    payload = {"title": title or ""}
+    success, data = _chat_request(
+        "sessions/",
+        method="POST",
+        json_data=payload,
+        token=auth_state.get("access_token"),
+    )
+    if not success:
+        return chat_state, None
+
+    chat_state["session_id"] = data["id"]
+    _merge_session(chat_state, data)
+    return chat_state, data
+
+
+def ensure_session(
+    auth_state: Dict[str, Any] | None,
+    chat_state: Dict[str, Any] | None,
+    *,
+    title: str | None = None,
+) -> Tuple[Dict[str, Any], str | None]:
+    chat_state = chat_state or _default_chat_state()
+    if chat_state.get("session_id"):
+        return chat_state, chat_state["session_id"]
+    chat_state, conversation = _create_session(auth_state, chat_state, title=title)
+    session_id = conversation["id"] if conversation else None
+    chat_state["session_id"] = session_id
+    return chat_state, session_id
+
+
+def set_active_session(
+    chat_state: Dict[str, Any] | None,
+    session_id: str | None,
+) -> Dict[str, Any]:
+    chat_state = chat_state or _default_chat_state()
+    chat_state["session_id"] = session_id
+    return chat_state
+
+
+def save_message(
+    auth_state: Dict[str, Any] | None,
+    session_id: str,
+    sender: str,
+    content: str,
+    *,
+    model_id: int | None = None,
+) -> None:
+    auth_state = auth_state or _default_auth_state()
+    if not _is_logged_in(auth_state):
+        return
+    payload: Dict[str, Any] = {"sender": sender, "content": content}
+    if model_id is not None:
+        payload["model_id"] = model_id
+    _chat_request(
+        f"sessions/{session_id}/messages/",
+        method="POST",
+        json_data=payload,
+        token=auth_state.get("access_token"),
+    )
+
+
+def _message_content_for_storage(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple)):
+        return str(value[0]) if value else ""
+    return str(value)
+
+
+def reset_chat_ui() -> Tuple[Dict[str, Any], gr.update, gr.update]:
+    chat_state = _default_chat_state()
+    return (
+        chat_state,
+        gr.update(choices=[], value=None, interactive=False),
+        gr.update(value=[]),
+    )
+
+
+def update_new_session_button(auth_state: Dict[str, Any] | None) -> gr.update:
+    is_logged_in = _is_logged_in(auth_state or {})
+    return gr.update(interactive=is_logged_in)
+
+
+def auth_status_output(auth_state: Dict[str, Any] | None) -> str:
+    return _auth_status_message(auth_state or _default_auth_state())
+
+
+def maybe_close_modal(auth_state: Dict[str, Any] | None) -> gr.Column:
+    if _is_logged_in(auth_state or {}):
+        return gr.update(visible=False)
+    return gr.update()
+
+
+def show_modal() -> gr.update:
+    return gr.update(visible=True)
+
+
+def hide_modal() -> gr.update:
+    return gr.update(visible=False)
+
+
+def update_user_panel(
+    auth_state: Dict[str, Any] | None,
+) -> Tuple[str, gr.update, gr.update]:
+    auth_state = auth_state or _default_auth_state()
+    if _is_logged_in(auth_state):
+        user = auth_state.get("user") or {}
+        username = user.get("username") or "已登录用户"
+        info = f"👤 当前用户：**{username}**"
+        return (
+            info,
+            gr.update(value="账户", visible=True),
+            gr.update(visible=True),
+        )
+    return (
+        "👤 当前用户：未登录",
+        gr.update(value="登录", visible=True),
+        gr.update(visible=False),
+    )
+
+
+def toggle_sidebar(
+    sidebar_open: bool | None,
+) -> Tuple[bool, gr.update, gr.update]:
+    current = True if sidebar_open is None else bool(sidebar_open)
+    new_state = not current
+    return (
+        new_state,
+        gr.update(visible=new_state),
+        gr.update(value="◀" if new_state else "▶"),
+    )
+
+
+def new_session_action(
+    auth_state: Dict[str, Any] | None,
+    chat_state: Dict[str, Any] | None,
+) -> Tuple[Dict[str, Any], gr.update, gr.update]:
+    chat_state = chat_state or _default_chat_state()
+    if not _is_logged_in(auth_state):
+        chat_state = _default_chat_state()
+        return chat_state, gr.update(interactive=False), gr.update(value=[])
+
+    title = time.strftime("对话 %H:%M:%S")
+    chat_state, conversation = _create_session(auth_state, chat_state, title=title)
+    if conversation:
+        chat_state["session_id"] = conversation["id"]
+    return chat_state, _session_selector_update(chat_state), gr.update(value=[])
+
+
+def select_session_action(
+    auth_state: Dict[str, Any] | None,
+    chat_state: Dict[str, Any] | None,
+    selected_label: str | None = None,
+) -> Tuple[Dict[str, Any], gr.update]:
+    chat_state = chat_state or _default_chat_state()
+    session_id = (chat_state.get("session_options") or {}).get(selected_label)
+    chat_state = set_active_session(chat_state, session_id)
+    return load_messages(auth_state, chat_state)
+
+
+def login_action(auth_state: Dict[str, Any], username: str, password: str):
+    auth_state = auth_state or _default_auth_state()
+    username = (username or "").strip()
+    password = password or ""
+    if not username or not password:
+        return (
+            auth_state,
+            _auth_status_message(auth_state),
+            "请输入用户名和密码。",
+            gr.update(),
+        )
+
+    success, payload = _auth_request(
+        "login/",
+        json_data={"username": username, "password": password},
+    )
+    if not success:
+        return (
+            auth_state,
+            _auth_status_message(auth_state),
+            f"登录失败：{payload}",
+            gr.update(value=""),
+        )
+
+    new_state = _state_from_login_payload(payload)
+    return (
+        new_state,
+        _auth_status_message(new_state),
+        "登录成功。",
+        gr.update(value=""),
+    )
+
+
+def register_action(username: str, password: str):
+    username = (username or "").strip()
+    password = password or ""
+    if not username or not password:
+        return "注册失败：请输入用户名和密码。"
+
+    success, payload = _auth_request(
+        "register/",
+        json_data={"username": username, "password": password},
+    )
+    if not success:
+        return f"注册失败：{payload}"
+    return f"注册成功：{username}，请登录。"
+
+
+def refresh_action(auth_state: Dict[str, Any] | None):
+    auth_state = auth_state or _default_auth_state()
+    refresh_token = auth_state.get("refresh_token")
+    if not refresh_token:
+        return (
+            auth_state,
+            _auth_status_message(auth_state),
+            "刷新失败：请先登录。",
+        )
+
+    success, payload = _auth_request(
+        "refresh/",
+        json_data={"refresh_token": refresh_token},
+    )
+    if not success:
+        new_state = _default_auth_state()
+        return new_state, _auth_status_message(new_state), f"刷新失败：{payload}"
+
+    new_state = _state_from_login_payload(payload)
+    return new_state, _auth_status_message(new_state), "刷新成功。"
+
+
+def logout_action(auth_state: Dict[str, Any] | None):
+    auth_state = auth_state or _default_auth_state()
+    if _is_logged_in(auth_state):
+        _auth_request(
+            "logout/",
+            json_data={"refresh_token": auth_state.get("refresh_token")},
+            token=auth_state.get("access_token"),
+        )
+    new_state = _default_auth_state()
+    return new_state, _auth_status_message(new_state), "已退出登录。"
+
+
 # 核心函数
-def grodio_view(chatbot, chat_input):
+def grodio_view(chatbot, chat_input, auth_state, chat_state):
+
+    auth_state = _prepare_user_context(auth_state)
+    chat_state = chat_state or _default_chat_state()
+
+    sessions_update = gr.update()
+    session_before = chat_state.get("session_id")
+    chat_state, session_id = ensure_session(
+        auth_state,
+        chat_state,
+        title=(chat_input["text"] or "").strip()[:50],
+    )
+    if session_id and session_id != session_before:
+        sessions_update = _session_selector_update(chat_state)
 
     # 用户消息立即显示
     user_message = chat_input["text"]
     bot_response = "loading..."
     chatbot.append([user_message, bot_response])
-    yield chatbot
+    yield chatbot, auth_state, chat_state, sessions_update
+
+    sessions_update = gr.update()
 
     # 处理用户上传的文件
     files = chat_input["files"]
@@ -139,7 +731,7 @@ def grodio_view(chatbot, chat_input):
                     <img src="data:image/png;base64,{image}" alt="Generated Image" style="max-width: 100%; height: auto; cursor: pointer;" />
                 </div>
                 """
-            yield chatbot
+            yield chatbot, auth_state
     else:
         image_url = None
 
@@ -177,6 +769,14 @@ def grodio_view(chatbot, chat_input):
     answer = get_answer(user_message, chatbot, question_type, image_url)
     bot_response = ""
 
+    if session_id and user_message:
+        save_message(
+            auth_state,
+            session_id,
+            "user",
+            user_message,
+        )
+
     # 处理文本生成/其他/文档检索/知识图谱检索
     if (
         answer[1] == userPurposeType.text
@@ -187,7 +787,7 @@ def grodio_view(chatbot, chat_input):
         for chunk in answer[0]:
             bot_response = bot_response + (chunk.choices[0].delta.content or "")
             chatbot[-1][1] = bot_response
-            yield chatbot
+            yield chatbot, auth_state, chat_state, sessions_update
 
     # 处理图片生成
     if answer[1] == userPurposeType.ImageGeneration:
@@ -204,14 +804,15 @@ def grodio_view(chatbot, chat_input):
             {describe[0]}
             """
         chatbot[-1][1] = combined_message
-        yield chatbot
+        bot_response = combined_message
+        yield chatbot, auth_state, chat_state, sessions_update
 
     # 处理图片描述
     if answer[1] == userPurposeType.ImageDescribe:
         for i in range(0, len(answer[0]), 1):
             bot_response += answer[0][i : i + 1]  # 累加当前chunk到combined_message
             chatbot[-1][1] = bot_response  # 更新chatbot对话中的最后一条消息
-            yield chatbot  # 实时输出当前累积的对话内容
+            yield chatbot, auth_state, chat_state, sessions_update  # 实时输出当前累积的对话内容
 
     # 处理视频
     if answer[1] == userPurposeType.Video:
@@ -219,7 +820,8 @@ def grodio_view(chatbot, chat_input):
             chatbot[-1][1] = answer[0]
         else:
             chatbot[-1][1] = "抱歉，视频生成失败，请稍后再试"
-        yield chatbot
+        bot_response = chatbot[-1][1]
+        yield chatbot, auth_state, chat_state, sessions_update
 
     # 处理PPT
     if answer[1] == userPurposeType.PPT:
@@ -227,7 +829,8 @@ def grodio_view(chatbot, chat_input):
             chatbot[-1][1] = answer[0]
         else:
             chatbot[-1][1] = "抱歉，PPT生成失败，请稍后再试"
-        yield chatbot
+        bot_response = chatbot[-1][1]
+        yield chatbot, auth_state, chat_state, sessions_update
 
     # 处理Docx
     if answer[1] == userPurposeType.Docx:
@@ -235,7 +838,8 @@ def grodio_view(chatbot, chat_input):
             chatbot[-1][1] = answer[0]
         else:
             chatbot[-1][1] = "抱歉，文档生成失败，请稍后再试"
-        yield chatbot
+        bot_response = chatbot[-1][1]
+        yield chatbot, auth_state, chat_state, sessions_update
 
     # 处理音频生成
     if answer[1] == userPurposeType.Audio:
@@ -243,7 +847,8 @@ def grodio_view(chatbot, chat_input):
             chatbot[-1][1] = answer[0]
         else:
             chatbot[-1][1] = "抱歉，音频生成失败，请稍后再试"
-        yield chatbot
+        bot_response = chatbot[-1][1]
+        yield chatbot, auth_state, chat_state, sessions_update
 
     # 处理联网搜索
     if answer[1] == userPurposeType.InternetSearch:
@@ -259,23 +864,44 @@ def grodio_view(chatbot, chat_input):
         for i in range(0, len(output_message)):
             bot_response = output_message[: i + 1]
             chatbot[-1][1] = bot_response
-            yield chatbot
+            yield chatbot, auth_state, chat_state, sessions_update
         for chunk in answer[0]:
             bot_response = bot_response + (chunk.choices[0].delta.content or "")
             chatbot[-1][1] = bot_response
-            yield chatbot
+            yield chatbot, auth_state, chat_state, sessions_update
+
+    if session_id:
+        save_message(
+            auth_state,
+            session_id,
+            "assistant",
+            _message_content_for_storage(bot_response),
+        )
+        chat_state, sessions_update = load_sessions(auth_state, chat_state)
+
+    yield chatbot, auth_state, chat_state, sessions_update
 
 
-def gradio_audio_view(chatbot, audio_input):
+def gradio_audio_view(chatbot, audio_input, auth_state, chat_state):
+
+    auth_state = _prepare_user_context(auth_state)
+    chat_state = chat_state or _default_chat_state()
+
+    sessions_update = gr.update()
+    session_before = chat_state.get("session_id")
+    chat_state, session_id = ensure_session(auth_state, chat_state)
+    if session_id and session_id != session_before:
+        sessions_update = _session_selector_update(chat_state)
 
     # 用户消息立即显示
     if audio_input is None:
         user_message = ""
     else:
         user_message = (audio_input, "audio")
-    bot_response = "loading..."
-    chatbot.append([user_message, bot_response])
-    yield chatbot
+    chatbot.append([user_message, "loading..."])
+    yield chatbot, auth_state, chat_state, sessions_update
+
+    sessions_update = gr.update()
 
     if audio_input is None:
         audio_message = "无音频"
@@ -286,21 +912,31 @@ def gradio_audio_view(chatbot, audio_input):
 
     user_message = ""
     if audio_message == "无音频":
-        user_message += "请你将下面的句子修饰后输出，不要包含额外的文字，句子:'欢迎与我对话，我将用语音回答您'"
+        user_message = "请你将下面的句子修饰后输出，不要包含额外的文字，句子:'欢迎与我对话，我将用语音回答您'"
     elif audio_message == "":
-        user_message += "请你将下面的句子修饰后输出，不要包含额外的文字，句子:'音频识别失败，请稍后再试'"
+        user_message = "请你将下面的句子修饰后输出，不要包含额外的文字，句子:'音频识别失败，请稍后再试'"
     elif "作曲 作曲" in audio_message:
-        user_message += "请你将下面的句子修饰后输出，不要包含额外的文字，句子:'不好意思，我无法理解音乐'"
+        user_message = "请你将下面的句子修饰后输出，不要包含额外的文字，句子:'不好意思，我无法理解音乐'"
     else:
-        user_message += audio_message
+        user_message = audio_message
 
-    if user_message == "":
+    if not user_message:
         user_message = "请你将下面的句子修饰后输出，不要包含额外的文字，句子:'请问您有什么想了解的，我将尽力为您服务'"
 
     question_type = parse_question(user_message)
     ic(question_type)
     answer = get_answer(user_message, chatbot, question_type)
+
+    if session_id and user_message:
+        save_message(
+            auth_state,
+            session_id,
+            "user",
+            user_message,
+        )
+
     bot_response = ""
+    assistant_content: Any = ""
 
     # 处理文本生成/其他/文档检索/知识图谱检索
     if (
@@ -308,28 +944,22 @@ def gradio_audio_view(chatbot, audio_input):
         or answer[1] == userPurposeType.RAG
         or answer[1] == userPurposeType.KnowledgeGraph
     ):
-        # 语音输出
         for chunk in answer[0]:
-            # 获取每个块的数据
             chunk_content = chunk.choices[0].delta.content or ""
             bot_response += chunk_content
-
         try:
-            chatbot[-1][1] = (
+            assistant_content = (
                 audio_generate(
                     text=bot_response,
                     model_name="zh-CN-YunxiNeural",
                 ),
                 "audio",
             )
-        except Exception as e:
-            print(f"音频生成失败，直接返回文本: {str(e)}")
-            chatbot[-1][1] = bot_response 
-            
-        yield chatbot
+        except Exception as exc:
+            print(f"音频生成失败，直接返回文本: {exc}")
+            assistant_content = bot_response
 
-    # 处理图片生成
-    if answer[1] == userPurposeType.ImageGeneration:
+    elif answer[1] == userPurposeType.ImageGeneration:
         image_url = answer[0]
         describe = process_image_describe_tool(
             question_type=userPurposeType.ImageDescribe,
@@ -337,106 +967,88 @@ def gradio_audio_view(chatbot, audio_input):
             history=" ",
             image_url=[image_url],
         )
-        combined_message = f"""
+        assistant_content = f"""
             **生成的图片:**
             ![Generated Image]({image_url})
             {describe[0]}
             """
-        chatbot[-1][1] = combined_message
-        yield chatbot
+        bot_response = describe[0]
 
-    # 处理视频
-    if answer[1] == userPurposeType.Video:
-        if answer[0] is not None:
-            chatbot[-1][1] = answer[0]
-        else:
-            try:
-                chatbot[-1][1] = (
-                    audio_generate(
-                        text="抱歉，视频生成失败，请稍后再试",
-                        model_name="zh-CN-YunxiNeural",
-                    ),
-                    "audio",
-                )
-            except Exception as e:
-                chatbot[-1][1] = "抱歉，视频生成失败，请稍后再试"
-        yield chatbot
+    elif answer[1] == userPurposeType.Video:
+        assistant_content = answer[0] or "抱歉，视频生成失败，请稍后再试"
+        bot_response = _message_content_for_storage(assistant_content)
 
-    # 处理PPT
-    if answer[1] == userPurposeType.PPT:
-        if answer[0] is not None:
-            chatbot[-1][1] = answer[0]
-        else:
-            try:
-                chatbot[-1][1] = (
-                    audio_generate(
-                        text="抱歉，PPT生成失败，请稍后再试",
-                        model_name="zh-CN-YunxiNeural",
-                    ),
-                    "audio",
-                )
-            except Exception as e:
-                chatbot[-1][1] = "抱歉，PPT生成失败，请稍后再试"
-        yield chatbot
+    elif answer[1] == userPurposeType.PPT:
+        assistant_content = answer[0] or "抱歉，PPT生成失败，请稍后再试"
+        bot_response = _message_content_for_storage(assistant_content)
 
-    # 处理Docx
-    if answer[1] == userPurposeType.Docx:
-        if answer[0] is not None:
-            chatbot[-1][1] = answer[0]
-        else:
-            try:
-                chatbot[-1][1] = (
-                    audio_generate(
-                        text="抱歉，文档生成失败，请稍后再试",
-                        model_name="zh-CN-YunxiNeural",
-                    ),
-                    "audio",
-                )
-            except Exception as e:
-                chatbot[-1][1] = "抱歉，文档生成失败，请稍后再试"
-        yield chatbot
+    elif answer[1] == userPurposeType.Docx:
+        assistant_content = answer[0] or "抱歉，文档生成失败，请稍后再试"
+        bot_response = _message_content_for_storage(assistant_content)
 
-    # 处理音频生成
-    if answer[1] == userPurposeType.Audio:
-        if answer[0] is not None:
-            chatbot[-1][1] = answer[0]
-        else:
-            try:
-                chatbot[-1][1] = (
-                    audio_generate(
-                        text="抱歉，音频生成失败，请稍后再试",
-                        model_name="zh-CN-YunxiNeural",
-                    ),
-                    "audio",
-                )
-            except Exception as e:
-                chatbot[-1][1] = "抱歉，音频生成失败，请稍后再试"
-        yield chatbot
+    elif answer[1] == userPurposeType.Audio:
+        assistant_content = answer[0] or "抱歉，音频生成失败，请稍后再试"
+        bot_response = _message_content_for_storage(assistant_content)
 
-    # 处理联网搜索
-    if answer[1] == userPurposeType.InternetSearch:
+    elif answer[1] == userPurposeType.InternetSearch:
         if answer[3] == False:
-            bot_response = (
-                "由于网络问题，访问互联网失败，下面由我根据现有知识给出回答："
-            )
-        # 语音输出
+            bot_response = "由于网络问题，访问互联网失败，下面由我根据现有知识给出回答："
         for chunk in answer[0]:
-            # 获取每个块的数据
             chunk_content = chunk.choices[0].delta.content or ""
             bot_response += chunk_content
-
         try:
-            chatbot[-1][1] = (
+            assistant_content = (
                 audio_generate(
                     text=bot_response,
                     model_name="zh-CN-YunxiNeural",
                 ),
                 "audio",
             )
-        except Exception as e:
-            print(f"音频生成失败，直接返回文本: {str(e)}")
-            chatbot[-1][1] = bot_response
-        yield chatbot
+        except Exception as exc:
+            print(f"音频生成失败，直接返回文本: {exc}")
+            assistant_content = bot_response
+
+    else:
+        bot_response = bot_response or "处理完成"
+        assistant_content = bot_response
+
+    if isinstance(assistant_content, str):
+        bot_response = assistant_content
+    chatbot[-1][1] = assistant_content
+
+    if session_id:
+        save_message(
+            auth_state,
+            session_id,
+            "assistant",
+            _message_content_for_storage(bot_response or assistant_content),
+        )
+        chat_state, sessions_update = load_sessions(auth_state, chat_state)
+
+    yield chatbot, auth_state, chat_state, sessions_update
+
+
+def _find_available_port(host: str, desired_port: int | None, max_attempts: int = 20) -> Tuple[int | None, bool]:
+    """
+    Return a usable port.
+
+    If desired_port <= 0 or None, instruct Gradio to auto-pick.
+    Otherwise probe forward until an available port is found.
+    """
+    if desired_port is None or desired_port <= 0:
+        return None, False
+
+    for offset in range(max_attempts):
+        candidate = desired_port + offset
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind((host, candidate))
+            except OSError:
+                continue
+        return candidate, offset != 0
+
+    return None, True
 
 
 # 切换到语音模式的函数
@@ -481,13 +1093,53 @@ examples = [
 
 
 # 构建 Gradio 界面
-with gr.Blocks() as demo:
-    # 标题和描述
-    gr.Markdown("# 「赛博华佗」🩺")
+with gr.Blocks(css=APP_CSS, analytics_enabled=False) as demo:
+    auth_state = gr.State(_default_auth_state())
+    chat_state = gr.State(_default_chat_state())
+    sidebar_state = gr.State(True)
 
-    # 创建聊天布局
-    with gr.Row():
-        with gr.Column(scale=10):
+    with gr.Column(visible=False, elem_id="auth-modal") as auth_modal:
+        with gr.Group():
+            gr.Markdown("### 账户中心")
+            username_input = gr.Textbox(
+                label="用户名", placeholder="请输入用户名", lines=1
+            )
+            password_input = gr.Textbox(
+                label="密码", placeholder="请输入密码", type="password", lines=1
+            )
+            with gr.Row():
+                login_button = gr.Button("登录", variant="primary")
+                register_button = gr.Button("注册")
+            with gr.Row():
+                refresh_button = gr.Button("刷新令牌", variant="secondary")
+                logout_modal_button = gr.Button("退出登录", variant="secondary")
+                close_modal_button = gr.Button("关闭")
+            auth_feedback = gr.Markdown("")
+
+    with gr.Row(elem_id="layout", equal_height=True):
+        with gr.Column(elem_id="sidebar", scale=0, min_width=260) as sidebar_column:
+            gr.Markdown("## 「赛博华佗」🩺")
+            new_session_button = gr.Button(
+                "＋ 新建会话", variant="secondary", interactive=False
+            )
+            gr.Markdown("#### 历史会话")
+            session_list = gr.Radio(
+                choices=[],
+                value=None,
+                interactive=False,
+                show_label=False,
+            )
+            gr.Markdown("---")
+            user_info_md = gr.Markdown("👤 当前用户：未登录")
+            login_open_button = gr.Button("登录", variant="primary")
+            logout_button = gr.Button("退出登录", variant="secondary", visible=False)
+
+        with gr.Column(elem_id="main", scale=1) as main_column:
+            with gr.Row():
+                sidebar_toggle_button = gr.Button(
+                    "◀", elem_id="sidebar-toggle", variant="secondary"
+                )
+                auth_status = gr.Markdown(_auth_status_message(_default_auth_state()))
             chatbot = gr.Chatbot(
                 height=600,
                 avatar_images=AVATAR,
@@ -500,34 +1152,239 @@ with gr.Blocks() as demo:
                 ],
                 placeholder="\n## 欢迎与我对话 \n————本项目开源地址https://github.com/Warma10032/cyber-doctor",
             )
+            with gr.Row():
+                with gr.Column(scale=9):
+                    chat_input = gr.MultimodalTextbox(
+                        interactive=True,
+                        file_count="multiple",
+                        placeholder="输入消息或上传文件...",
+                        show_label=False,
+                    )
+                    audio_input = gr.Audio(
+                        sources=["microphone", "upload"],
+                        label="录音输入",
+                        visible=False,
+                        type="filepath",
+                    )
+                with gr.Column(scale=1):
+                    clear = gr.ClearButton(
+                        [chatbot, chat_input, audio_input], value="清除记录"
+                    )
+                    toggle_voice_button = gr.Button("语音对话模式", visible=True)
+                    toggle_text_button = gr.Button("文本交流模式", visible=False)
+                    submit_audio_button = gr.Button("发送", visible=False)
 
-    with gr.Row():
-        with gr.Column(scale=9):
-            chat_input = gr.MultimodalTextbox(
-                interactive=True,
-                file_count="multiple",
-                placeholder="输入消息或上传文件...",
-                show_label=False,
-            )
-            audio_input = gr.Audio(
-                sources=["microphone", "upload"],
-                label="录音输入",
-                visible=False,
-                type="filepath",
-            )
-        with gr.Column(scale=1):
-            clear = gr.ClearButton([chatbot, chat_input, audio_input], value="清除记录")
-            toggle_voice_button = gr.Button("语音对话模式", visible=True)
-            toggle_text_button = gr.Button("文本交流模式", visible=False)
-            submit_audio_button = gr.Button("发送", visible=False)
+            with gr.Row() as example_row:
+                gr.Examples(
+                    examples=examples,
+                    inputs=chat_input,
+                    visible=True,
+                    examples_per_page=15,
+                )
 
-    with gr.Row() as example_row:
-        example_component = gr.Examples(
-            examples=examples, inputs=chat_input, visible=True, examples_per_page=15
-        )
+    # === 事件绑定 ===
+    login_open_button.click(
+        fn=show_modal,
+        inputs=None,
+        outputs=[auth_modal],
+    )
 
-    chat_input.submit(fn=grodio_view, inputs=[chatbot, chat_input], outputs=[chatbot])
-    # 切换按钮点击事件
+    close_modal_button.click(
+        fn=hide_modal,
+        inputs=None,
+        outputs=[auth_modal],
+    )
+
+    register_button.click(
+        fn=register_action,
+        inputs=[username_input, password_input],
+        outputs=[auth_feedback],
+    )
+
+    login_event = login_button.click(
+        fn=login_action,
+        inputs=[auth_state, username_input, password_input],
+        outputs=[auth_state, auth_status, auth_feedback, password_input],
+    )
+    login_event = login_event.then(
+        load_sessions,
+        inputs=[auth_state, chat_state],
+        outputs=[chat_state, session_list],
+    )
+    login_event = login_event.then(
+        load_messages,
+        inputs=[auth_state, chat_state],
+        outputs=[chat_state, chatbot],
+    )
+    login_event.then(
+        update_new_session_button,
+        inputs=[auth_state],
+        outputs=[new_session_button],
+    )
+    login_event.then(
+        update_user_panel,
+        inputs=[auth_state],
+        outputs=[user_info_md, login_open_button, logout_button],
+    )
+    login_event.then(
+        maybe_close_modal,
+        inputs=[auth_state],
+        outputs=[auth_modal],
+    )
+    login_event.then(
+        None,
+        inputs=[auth_state],
+        outputs=[auth_state],
+        js=JS_SAVE_AUTH,
+    )
+
+    refresh_event = refresh_button.click(
+        fn=refresh_action,
+        inputs=[auth_state],
+        outputs=[auth_state, auth_status, auth_feedback],
+    )
+    refresh_event = refresh_event.then(
+        load_sessions,
+        inputs=[auth_state, chat_state],
+        outputs=[chat_state, session_list],
+    )
+    refresh_event = refresh_event.then(
+        load_messages,
+        inputs=[auth_state, chat_state],
+        outputs=[chat_state, chatbot],
+    )
+    refresh_event.then(
+        update_new_session_button,
+        inputs=[auth_state],
+        outputs=[new_session_button],
+    )
+    refresh_event.then(
+        update_user_panel,
+        inputs=[auth_state],
+        outputs=[user_info_md, login_open_button, logout_button],
+    )
+    refresh_event.then(
+        None,
+        inputs=[auth_state],
+        outputs=[auth_state],
+        js=JS_SAVE_AUTH,
+    )
+
+    logout_event = logout_button.click(
+        fn=logout_action,
+        inputs=[auth_state],
+        outputs=[auth_state, auth_status, auth_feedback],
+    )
+    logout_event = logout_event.then(
+        lambda: gr.update(visible=False),
+        inputs=None,
+        outputs=[auth_modal],
+    )
+    logout_event.then(
+        reset_chat_ui,
+        inputs=None,
+        outputs=[chat_state, session_list, chatbot],
+    )
+    logout_event.then(
+        update_new_session_button,
+        inputs=[auth_state],
+        outputs=[new_session_button],
+    )
+    logout_event.then(
+        update_user_panel,
+        inputs=[auth_state],
+        outputs=[user_info_md, login_open_button, logout_button],
+    )
+    logout_event.then(
+        None,
+        inputs=[auth_state],
+        outputs=[auth_state],
+        js=JS_SAVE_AUTH,
+    )
+
+    logout_modal_button.click(
+        fn=logout_action,
+        inputs=[auth_state],
+        outputs=[auth_state, auth_status, auth_feedback],
+    ).then(
+        lambda: gr.update(visible=False),
+        inputs=None,
+        outputs=[auth_modal],
+    ).then(
+        reset_chat_ui,
+        inputs=None,
+        outputs=[chat_state, session_list, chatbot],
+    ).then(
+        update_new_session_button,
+        inputs=[auth_state],
+        outputs=[new_session_button],
+    ).then(
+        update_user_panel,
+        inputs=[auth_state],
+        outputs=[user_info_md, login_open_button, logout_button],
+    ).then(
+        None,
+        inputs=[auth_state],
+        outputs=[auth_state],
+        js=JS_SAVE_AUTH,
+    )
+
+    chat_input.submit(
+        fn=grodio_view,
+        inputs=[chatbot, chat_input, auth_state, chat_state],
+        outputs=[chatbot, auth_state, chat_state, session_list],
+    )
+
+    session_list.change(
+        fn=select_session_action,
+        inputs=[auth_state, chat_state, session_list],
+        outputs=[chat_state, chatbot],
+    )
+
+    new_session_button.click(
+        fn=new_session_action,
+        inputs=[auth_state, chat_state],
+        outputs=[chat_state, session_list, chatbot],
+    )
+
+    sidebar_toggle_button.click(
+        fn=toggle_sidebar,
+        inputs=[sidebar_state],
+        outputs=[sidebar_state, sidebar_column, sidebar_toggle_button],
+    )
+
+    load_event = demo.load(
+        fn=None,
+        inputs=None,
+        outputs=[auth_state],
+        js=JS_LOAD_AUTH,
+    )
+    load_event = load_event.then(
+        auth_status_output,
+        inputs=[auth_state],
+        outputs=[auth_status],
+    )
+    load_event = load_event.then(
+        update_new_session_button,
+        inputs=[auth_state],
+        outputs=[new_session_button],
+    )
+    load_event = load_event.then(
+        update_user_panel,
+        inputs=[auth_state],
+        outputs=[user_info_md, login_open_button, logout_button],
+    )
+    load_event = load_event.then(
+        load_sessions,
+        inputs=[auth_state, chat_state],
+        outputs=[chat_state, session_list],
+    )
+    load_event.then(
+        load_messages,
+        inputs=[auth_state, chat_state],
+        outputs=[chat_state, chatbot],
+    )
+
     toggle_voice_button.click(
         fn=toggle_voice_mode,
         inputs=None,
@@ -553,13 +1410,32 @@ with gr.Blocks() as demo:
     )
 
     submit_audio_button.click(
-        fn=gradio_audio_view, inputs=[chatbot, audio_input], outputs=[chatbot]
+        fn=gradio_audio_view,
+        inputs=[chatbot, audio_input, auth_state, chat_state],
+        outputs=[chatbot, auth_state, chat_state, session_list],
     )
 
 
 # 启动应用
 def start_gradio():
-    demo.launch(server_port=10032, share=False)
+    # 可通过环境变量控制对外访问与端口/分享：
+    #   GRADIO_HOST: 监听地址，默认 127.0.0.1；设置为 0.0.0.0 可被局域网访问
+    #   GRADIO_PORT: 端口号，默认 10032
+    #   GRADIO_SHARE: 是否开启 gradio 公网临时分享，true/false，默认 false
+    raw_port = os.getenv("GRADIO_PORT", "10032")
+    try:
+        desired_port = int(raw_port)
+    except ValueError:
+        desired_port = None
+
+    host = os.getenv("GRADIO_HOST", "127.0.0.1")
+    share = os.getenv("GRADIO_SHARE", "false").lower() == "true"
+    selected_port, port_was_busy = _find_available_port(host, desired_port)
+    if port_was_busy:
+        fallback_text = selected_port if selected_port is not None else "auto"
+        print(f"[gradio] Desired port {desired_port} is busy, switching to {fallback_text}")
+
+    demo.launch(server_port=selected_port, server_name=host, share=share)
 
 
 if __name__ == "__main__":
