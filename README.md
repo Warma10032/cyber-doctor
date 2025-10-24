@@ -1,8 +1,8 @@
-<div align="center">
+﻿<div align="center">
  <img src="README/bot.jpg" width="200" />
 </div>
 
-<h1 align="center">「赛博华佗」🩺 cyber-doctor 你的健康小管家</h1>
+<h1 align="center">「赛博华佗」· cyber-doctor 你的健康小管家</h1>
 
 **语言**
 
@@ -23,7 +23,15 @@ https://www.bilibili.com/video/BV1CU2aYpEn2
 
 ## 项目背景
 
-医疗资源不平衡一直以来是社会关注的重点问题，它导致众多医疗不公平事件发生。在相对落后地区的人们想要获得优秀的医疗资源往往需要前往一线城市，这不仅费时费力费钱，而且极大的影响了他们的接受医疗救助的基本权利。当前多模态大语言模型不断发展，在许多领域都有了不错的应用。我们小组基于东南大学暑期实训课程，开发了一个医疗健康领域的多模态大模型，这个大模型的目标用户是所有对自己健康关心的人，帮助进行基本的疾病诊断，病历分析，专业知识答疑等功能。本项目狭义上可以作为一个多功能的健康小助手，帮助管理个人健康，提供基础的医疗建议；广义上可以配置在任何领域，通过微调的大模型和RAG技术让大模型掌握目标领域的专业知识，成为任意专业的专家。
+医疗资源不平衡长期存在，尤其是欠发达地区难以及时触达优质医疗资源。随着多模态大语言模型的快速发展，我们希望搭建一个可扩展的医疗知识助手，从病历理解、基础问诊到健康知识科普都能提供智能支持。赛博华佗基于东南大学暑期实训课程完成开发，目标用户是所有关注自身健康的人，同时也为其他垂直领域提供可复用的多模态智能体脚手架。
+
+## 新版亮点
+
+- **Django + JWT 认证服务**：新增独立认证后台，并与 Gradio 前端深度整合，支持注册、登录、刷新、注销及黑名单机制。
+- **多用户知识库隔离**：登录后自动将知识库文件写入 user_data/<user_id>，RAG 向量库按用户隔离，支持上传、查看、删除并重建。
+- **会话持久化 API**：Django chat 应用提供 REST 接口，Gradio UI 可切换历史会话并同步消息，方便与第三方系统集成。
+- **可插拔模型调用**：兼容智谱、DeepSeek、阿里通义、硅基流动、Ollama 等多家模型，沿用 OpenAI SDK 调用方式，可在配置中自由切换。
+- **桌面级交互体验**：登录状态本地缓存、侧边栏可折叠、拖拽上传，多模态输入（文本/图片/音频/视频）整合在统一界面。
 
 ## 界面展示
 
@@ -37,26 +45,27 @@ https://www.bilibili.com/video/BV1CU2aYpEn2
 
 ## 功能特色
 
-- **多功能多模态整合，借助AI智能体判断任务的种类，将多个模型整合工作，解决复杂问题。**
-- **单独的语音对话模块，语音输入语音输出，只需要会说话就能使用，降低大模型学习成本。**
+- **多模态智能体编排**：根据问题自动识别任务类型，组合文本、图像、音频、视频模型协同处理复杂请求。
+- **检索增强一体化**：知识库 RAG、知识图谱、联网搜索三管齐下，提高回答的准确性与时效性。
+- **语音全链路能力**：内置 Whisper 语音识别与 Edge-TTS 语音合成，支持语音输入和语音播报。
+- **办公文档自动化**：一键生成 PPT、Word 等办公文档，并提供下载链接。
+- **账户与会话体系**：登录后开启个人知识库目录与会话历史，支持 token 刷新与黑名单。
+- **可扩展工具集**：通过 LangChain 工具路由快速挂载自定义函数或外部系统。
+- **多模型接入**：支持远程云端模型、本地 Ollama 封装及自建模型 API。
 
 ## 功能介绍
 
-![功能模块](README/功能模块.png)
-
-| 功能         | 功能介绍                                                                                                 |
-| ------------ | -------------------------------------------------------------------------------------------------------- |
-| 图片识别     | 借助多模态大模型的能力，识别图片中的图像和文字。可用于识别病历，识别药品说明书等                         |
-| 视频生成     | 借助多模态大模型的能力，生成视频                                                                         |
-| 图片生成     | 借助多模态大模型的能力，生成图片                                                                         |
-| ppt/word生成 | 可自动生成固定格式的纯文字PPT和Word文档                                                                  |
-| 多轮对话     | 具有记忆功能，对话界面的所有内容会作为历史记录一同输入大模型                                             |
-| 检索增强对话 | 多模态输入框不只能输入文本，还能上传文件。大模型会根据文件内容调整输出                                   |
-| 语音输入     | 多模态输入框可以上传音频文件。进入语音对话模式可以直接使用麦克风进行语音输入                             |
-| 语音输出     | 要求大模型以语音的形式进行输出时，大模型会返回一段音频，支持多种方言，在语音对话模式下默认以语言形式输出 |
-| 知识图谱增强 | 支持配置相关领域的neo4j知识图谱，用专业知识改善大模型输出                                                |
-| 知识库增强   | 支持利用多种格式的文件作为专属知识库，大模型会结合知识库中的文件进行输出                                 |
-| 联网检索增强 | 通过自动化爬虫检索网络上的相关信息，利用网络增强大模型知识的时效性                                       |
+| 功能             | 功能介绍                                                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 多轮对话         | 保留上下文记忆，支持图片、音频、文档混合输入，自动在知识库、知识图谱、联网模式之间切换。                                     |
+| 图片识别 / 生成  | 借助多模态大模型识别病历、药品说明等图像信息，也可生成宣教素材或插画。                                                      |
+| 视频生成         | 调用智谱 AI 视频生成能力，快速产出短视频或动画脚本。                                                                         |
+| PPT / Word 生成  | 结合提示模板生成结构化内容，并导出为 Office 文档。                                                                            |
+| 语音输入 / 输出  | 语音对话模式下自动调用 Whisper 识别与 Edge-TTS 合成，支持多语种与方言。                                                      |
+| 检索增强生成     | 知识库、知识图谱、联网检索三种 RAG 工具按需触发，引用外部资料提供可溯源答案。                                                |
+| 多用户知识库     | 登录后分配独立文件目录，支持上传/查看/删除文件并重建个人向量库。                                                             |
+| 会话管理         | 认证后自动创建会话，可在前端切换历史记录，同时通过 REST API 与外部系统同步。                                                 |
+| 联网检索增强     | 自动爬取网络数据、提取摘要并引用来源，保证回答的新鲜度。                                                                    |
 
 ## 典型功能展示
 
@@ -64,252 +73,243 @@ https://www.bilibili.com/video/BV1CU2aYpEn2
 
 ![](README/病历识别.png)
 
-### PPT/Word生成
+### PPT/Word 生成
 
 ![](README/PPT&Word生成.png)
 
 ![](README/PPT&Word展示.png)
 
-### 知识图谱检索增强：
+### 知识图谱检索增强
 
 ![](README/知识图谱检索.png)
 
-### 联网检索增强：
+### 联网检索增强
 
 ![](README/联网搜索.png)
 
 ## 技术栈
 
-- **Python**
-- **PyTorch**
-- **Transformers**
-- **Gradio**：简易的UI和交互生成工具
-- **Langchain**：基于 Langchain 框架，构建语言模型进行链式操作
-- **modelscope & huggingface**：预训练大模型的下载与配置
-- **RAG**：结合检索与生成的技术，用于增强生成式模型的回答质量
-- **Knowledge Graph (Neo4j)**：Neo4j图数据库的配置和Cypher语句操作
-- **TTS (edge-tts)，STT (whisper)**：语音转文本，文本转语音
-- **OpenAi & zhipuai**：相关大模型sdk调用方法
-
-Option：
-
-- **Ollama**：本地大模型api封装
+- **Python 3.10+**
+- **Gradio 5**：新版 UI 组件，支持自定义 CSS/JS 与本地状态缓存。
+- **Django 5 + Redis**：认证、会话、token 黑名单管理（Redis 可选）。
+- **LangChain / LangChain Community**：工具编排与 RAG 链路。
+- **PyTorch & Transformers**：多模态与文本生成模型底座。
+- **ModelScope Embeddings + FAISS**：知识库文本向量化与检索。
+- **Edge-TTS / Whisper / SpeechRecognition**：语音合成与识别。
+- **httpx / APScheduler / PyJWT**：网络请求、任务调度与令牌管理。
 
 ## 如何启动项目
 
-1. **从Github上拉取项目**
-
-   ```bash
-   git clone https://github.com/Warma10032/cyber-doctor.git
-   或者
-   git clone git@github.com:Warma10032/cyber-doctor.git
-   ```
-   
-2. **配置大模型API**
-
-   复制 `.env.example`为 `.env`，填写 `.env`内相关API配置。
-
-   API目前支持：
-
-   1. 所有支持OpenAI SDK接口的API，包括
-      - [智谱AI](https://open.bigmodel.cn/)
-      - [豆包大模型](https://www.volcengine.com/experience/ark?utm_term=202502dsinvite&ac=DSASUQY5&rc=II9TBGSX)
-      - [硅基流动集成平台](https://cloud.siliconflow.cn/i/VWOdVvvM)
-      - [deepseek](https://platform.deepseek.com/)
-      - [千问Qwen](https://bailian.console.aliyun.com/)
-   2. Ollama封装的本地API
-
-如果你还未申请API，欢迎通过我的邀请链接进行注册获取新人试用额度。
-
-   由于团队本身缺少申请/测试多家API的能力，可能会有各种bug，**欢迎各位提出相关的issue和PR一起来解决API适配问题，你的行动是对开源社区最大的帮助。**
-
-3. **填写 `config/config-web.yaml`配置文件**
-
-4. **创建python环境（python>=3.10，建议为3.10）**
-
-   建议使用conda管理环境
-
-   ```bash
-   conda create --name myenv python=3.10
-   conda activate myenv
-   ```
-
-   安装依赖库
-
-   ```bash
+1. **克隆仓库**
+   `ash
+   git clone https://github.com/yazesong/cyber-doctor.git
+   # 或使用 SSH
+   git clone git@github.com:yazesong/cyber-doctor.git
+   cd cyber-doctor
+   `
+2. **创建并激活 Python 环境（建议 3.10）**
+   `ash
+   python -m venv .venv
+   # Windows
+   .\.venv\Scripts\activate
+   # macOS / Linux
+   source .venv/bin/activate
+   `
+   *可选：使用 Conda 时执行 conda create -n cyber-doctor python=3.10 && conda activate cyber-doctor。*
+3. **安装项目依赖**
+   `ash
+   pip install --upgrade pip
    pip install -r requirements.txt
-   ```
-   
-5. **启动项目**
-
-   ```bash
+   `
+   若需 GPU 版本，可按需替换 	orch 安装源。
+4. **复制并填写环境变量**
+   - 复制 .env.example 为 .env（Windows 可执行 copy .env.example .env）。
+   - 填写主模型的 LLM_BASE_URL、LLM_API_KEY、MODEL_NAME。
+   - 生成随机的 DJANGO_SECRET_KEY、JWT_SECRET_KEY，根据需求调整 token 生命周期。
+   - 配置 AUTH_SERVER_BASE_URL、GRADIO_HOST、GRADIO_PORT 等服务地址。
+5. **完善 YAML 配置**
+   - 编辑 config/config-web.yaml，确认知识库目录（默认 ./konwledge-base）、ModelScope 下载路径以及 Neo4j 连接信息。
+   - 如需调整检索参数（chunk 大小、召回数量等），可在该文件或对应模块中修改。
+6. **准备可选组件**
+   - **Redis（推荐）**：负责 refresh token 与黑名单存储。
+     `ash
+     docker run -d --name cyber-redis -p 6379:6379 redis:7
+     `
+     将连接串写入 .env 的 REDIS_URL，未配置时系统会自动回退到 uthserver/token_store.json。
+   - **Neo4j 知识图谱（可选）**：安装 Neo4j 社区版或使用 Docker，配置 config/config-web.yaml 中的连接信息。可从 [OpenKG](http://openkg.cn/datasets-type/1) 获取医疗图谱，使用 
+eo4j-admin database load 导入，必要时执行 
+eo4j-admin database migrate。
+   - **FFmpeg（语音功能）**：请安装 FFmpeg 并确保命令可用，以便 pydub、whisper 处理音频。
+7. **初始化 Django 认证服务**
+   `ash
+   python authserver/manage.py migrate
+   # 可选：创建后台管理员
+   python authserver/manage.py createsuperuser
+   python authserver/manage.py runserver 0.0.0.0:8000
+   `
+   认证服务基于 JWT，可选接入 Redis 黑名单，详细接口见 [docs/authentication.md](docs/authentication.md)。
+8. **启动 Gradio 多模态前端**
+   `ash
    python app.py
-   ```
+   `
+   如需外网访问，可在 .env 中将 GRADIO_HOST 设置为  .0.0.0 或开启 GRADIO_SHARE=true。
+9. **注册、登录并体验功能**
+   - 浏览器访问 http://<GRADIO_HOST>:<GRADIO_PORT>。
+   - 在顶部登录面板完成注册/登录，登录状态会同步到本地存储并写入 user_data/<user_id>。
+   - 通过侧边栏上传知识库文件、重建向量库，或直接发起文本/语音/图像对话；所有会话将同步到 Django chat API，方便外部系统读取。
 
-   启动后访问 http://localhost:7860
+## 环境变量速览
 
-Option：
+`ini
+# 大模型与多模态
+LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+LLM_API_KEY=请填写
+MODEL_NAME=glm-4.5-flash
+IMAGE_GENERATE_API=
+IMAGE_GENERATE_MODEL=cogview-3-flash
+IMAGE_DESCRIBE_API=
+IMAGE_DESCRIBE_MODEL=glm-4v-flash
+VIDEO_GENERATE_API=
+VIDEO_GENERATE_MODEL=cogvideox-flash
 
-1. **下载Neo4j图数据库（使用知识图谱检索增强功能的必要条件）**
+# 运行环境
+PY_ENVIRONMENT=web
+GRADIO_HOST=127.0.0.1
+GRADIO_PORT=10032
+GRADIO_SHARE=false
 
-   推荐教程：
+# Django 认证
+DJANGO_SECRET_KEY=随机字符串
+DJANGO_DEBUG=false
+DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost
+DJANGO_DB_PATH=authserver/db.sqlite3  # 可选：自定义数据库路径
 
-   - [Windows系统下Neo4j安装教程——CSDN博客](https://blog.csdn.net/jing_zhong/article/details/112557084)
-   - [Docker化部署Neo4j](https://cloud.baidu.com/article/3314714)
+# JWT & Redis
+JWT_SECRET_KEY=随机字符串
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_LIFETIME_MINUTES=60
+REFRESH_TOKEN_LIFETIME_DAYS=7
+AUTH_TOKEN_NAMESPACE=cyber_doctor
+REDIS_URL=redis://127.0.0.1:6379/0
 
-   提醒：
+# 服务地址
+AUTH_SERVER_BASE_URL=http://127.0.0.1:8000
+`
 
-   - 免费的社区版即可，能创建一个图数据库
-   - 创建时记住用户名和密码
-   - 填写config/config-web.yaml配置文件
-   - 记得启动Neo4j服务
-2. **配置一个专业领域的图数据库**
-
-   推荐开源知识图谱平台：[OpenKG](http://openkg.cn/datasets-type/)
-
-   如果想配置医疗健康领域的数据库，推荐下载如下开源知识图谱
-
-   [面向家庭常见疾病的知识图谱](http://data.openkg.cn/dataset/medicalgraph)（本项目使用了该图谱，使用该图谱可以不更改config/config-web.yaml的相关配置文件）
-
-   1. 下载到本地后，改.dump文件名为你要导入的数据库名称（eg：neo4j.dump）
-   2. 关闭neo4j服务
-
-      ```
-      Windows: neo4j stop
-      Linux: sudo neo4j stop
-      ```
-   3. 运行导入指令（这一步简中互联网上找不到正确的教程😡）
-
-      ```
-      neo4j-admin database load <database-name> --from-path=/path/to/dump-folder/ --overwrite-destination=true
-      ```
-
-      `--from-path`：存放对应"database-name".dump文件的文件夹路径
-
-      `--overwrite-destination`：**注意会覆盖你原先数据库中的数据**
-   4. 若运行上面的命令后输出
-
-      ```
-      The loaded database 'neo4j' is not on a supported version (current format: AF4.3.0 introduced in 4.3.0). Use the 'neo4j-admin database migrate' command
-      ```
-
-      还需要运行如下命令
-
-      ```
-      neo4j-admin database migrate 
-      ```
-   5. 启动neo4j服务
-
-      ```
-      Windows: neo4j start
-      Linux: sudo neo4j start
-      ```
+- 未配置的多模态接口会自动禁用对应功能，可按需填入智谱、火山、硅基等平台的密钥。
+- 若部署在公网，请同步更新 DJANGO_ALLOWED_HOSTS、GRADIO_SHARE，并为 JWT 密钥使用高强度随机字符串。
+- PY_ENVIRONMENT 支持切换不同的 YAML 配置文件（如 config/config-web.yaml）。
 
 ## 项目结构
 
-```
+`	ext
 cyber-doctor/
-├── .env                            # 环境配置文件，存储API密钥、模型配置等敏感信息
-├── .env.example                    # 环境配置文件示例，展示需要配置的环境变量
-├── .gitignore                      # Git版本控制忽略文件配置
-├── LICENSE                         # 项目许可证文件
-├── README.md                       # 项目中文说明文档
-├── README_en.md                    # 项目英文说明文档
-├── __init__.py                     # Python包初始化文件
-├── app.py                          # 项目启动文件，构建Gradio界面，处理多模态信息，可自定义ASR模型和界面
-├── env.py                          # 封装读取.env文件的接口
-├── requirements.txt                # 项目依赖包列表
-├── Internet/                       # 联网搜索相关功能模块
-│   ├── __init__.py                   # 包初始化文件
-│   ├── Internet_chain.py             # 联网搜索链，协调关键词提取、搜索爬取和检索过程
-│   ├── Internet_prompt.py            # 大模型特征工程，提取搜索关键词
-│   └── retrieve_Internet.py          # 调用model/Internet接口检索搜索结果
-├── README/                         # 存放项目文档相关资源
-├── audio/                          # 音频处理相关功能模块
-│   ├── __init__.py                   # 包初始化文件
-│   ├── audio_extract.py              # 大模型特征工程，提取TTS目标文本和语种
-│   └── audio_generate.py             # 封装调用edge-tts语音合成接口
-├── client/                         # 大模型客户端模块，作为用户与API的桥梁
-│   ├── __init__.py                   # 包初始化文件
-│   ├── LLMclientbase.py              # 大模型客户端基类定义
-│   ├── LLMclientgeneric.py           # 封装调用大模型API接口进行对话生成的通用函数
-│   ├── clientfactory.py              # 封装构建不同大模型客户端的工厂类
-│   ├── ourAPI/                       # 自定义API接口实现
-│   │   ├── __init__.py                 # 包初始化文件
-│   │   └── client.py                   # 自定义API客户端实现
-│   └── zhipuAPI/                     # 智谱AI API接口实现
-│       ├── __init__.py                 # 包初始化文件
-│       └── client.py                   # 智谱AI客户端实现
-├── config/                         # 配置文件目录
-│   ├── __init__.py                   # 包初始化文件
-│   ├── config-web.yaml               # 不同(Web)开发环境下的应用配置文件
-│   └── config.py                     # 配置加载和处理模块
-├── kg/                             # 知识图谱相关功能模块
-│   └── Graph.py                      # 知识图谱对象实现
-├── model/                          # 检索功能使用到的模型相关功能模块，包括联网RAG、知识库RAG、知识图谱RAG
-│   ├── __init__.py                   # 包初始化文件
-│   ├── model_base.py                 # 模型基类定义
-│   ├── Internet/                     # 联网RAG向量库实现
-│   │   ├── __init__.py                 # 包初始化文件
-│   │   ├── Internet_model.py           # 构建联网RAG向量库
-│   │   └── Internet_service.py         # 联网RAG向量库接口
-│   ├── KG/                           # 知识图谱RAG的匹配自动机实现
-│   │   ├── __init__.py                 # 包初始化文件
-│   │   ├── data_utils.py               # 知识图谱数据处理工具
-│   │   ├── search_model.py             # 构建知识图谱RAG的匹配自动机
-│   │   └── search_service.py           # 知识图谱RAG的匹配自动机接口
-│   └── RAG/                          # 知识库RAG向量库实现
-│       ├── __init__.py                 # 包初始化文件
-│       ├── retrieve_model.py           # 构建知识库RAG向量库
-│       └── retrieve_service.py         # 知识库RAG向量库接口
-├── ppt_docx/                       # PPT和Word文档生成模块
-│   ├── docx_content.py               # 大模型生成Word内容
-│   ├── docx_generation.py            # Word内容转换为Word文档
-│   ├── ppt_content.py                # 大模型生成PPT内容
-│   └── ppt_generation.py             # PPT内容转换为PPT文档
-├── qa/                             # 问答系统核心模块
-│   ├── __init__.py                   # 包初始化文件
-│   ├── answer.py                     # 根据问题类型选择对应的工具函数生成回答
-│   ├── function_tool.py              # 工具函数集合
-│   ├── prompt_templates.py           # 提示词模板定义
-│   ├── purpose_type.py               # 问题类型定义
-│   └── question_parser.py            # 问题类型解析判断
-├── rag/                            # 检索增强生成模块
-│   ├── __init__.py                   # 包初始化文件
-│   ├── rag_chain.py                  # RAG链式调用实现
-│   └── retrieve/                     # 检索功能实现
-│       ├── __init__.py                 # 包初始化文件
-│       └── retrieve_document.py        # 文档检索实现
-└── resource/                       # 资源文件目录，存放图片等静态资源
-```
+├── .env.example                   # 环境变量示例（复制后修改为 .env 使用）
+├── .gitignore                     # Git 忽略规则
+├── LICENSE                        # 开源协议
+├── README.md                      # 中文说明文件
+├── README_en.md                   # 英文说明文件
+├── requirements.txt               # Python 依赖清单
+├── env.py                         # .env 读取封装
+├── app.py                         # Gradio 前端入口，负责认证、会话、多模态编排
+├── audio/                         # 语音能力模块（ASR/TTS）
+│   ├── audio_extract.py           # 音频裁剪与格式转换
+│   ├── audio_generate.py          # 文本转语音封装
+│   └── __init__.py
+├── authserver/                    # Django 认证与会话服务
+│   ├── manage.py                  # Django 管理入口
+│   ├── authserver/                # Django settings、URL、ASGI/Wsgi
+│   ├── core/                      # JWT 配置、token 存储、工具函数
+│   ├── users/                     # 注册 / 登录 / 刷新 / 注销接口
+│   └── chat/                      # 会话、消息模型与 REST API
+├── client/                        # 大模型客户端适配层
+│   ├── clientfactory.py           # 客户端工厂
+│   ├── LLMclientbase.py           # 抽象基类
+│   ├── LLMclientgeneric.py        # OpenAI 协议兼容实现
+│   ├── ourAPI/                    # 自建/本地模型封装
+│   └── zhipuAPI/                  # 智谱 API 封装
+├── config/                        # 配置中心
+│   ├── config-web.yaml            # 默认运行配置（知识库、Neo4j、缓存等）
+│   └── config.py                  # YAML + .env 解析工具
+├── data/                          # 运行缓存/示例数据（如联网检索缓存）
+│   └── cache/
+├── docs/                          # 项目文档
+│   └── authentication.md          # 认证服务部署与 API 说明
+├── Internet/                      # 联网检索链路
+│   ├── Internet_chain.py
+│   ├── Internet_prompt.py
+│   └── retrieve_Internet.py
+├── kg/                            # 知识图谱封装
+│   └── Graph.py
+├── konwledge-base/                # 默认知识库目录（可放公共素材）
+├── model/                         # 检索 / 图谱 / 联网模型实现
+│   ├── model_base.py              # 模型生命周期管理
+│   ├── Internet/                  # 联网 RAG 向量库
+│   ├── KG/                        # 图谱匹配自动机
+│   └── RAG/                       # 本地知识库构建与检索
+├── ppt_docx/                      # 文档自动生成模块
+│   ├── ppt_content.py
+│   ├── ppt_generation.py
+│   ├── docx_content.py
+│   └── docx_generation.py
+├── qa/                            # 问答链路与工具函数
+│   ├── answer.py
+│   ├── function_tool.py
+│   ├── prompt_templates.py
+│   ├── purpose_type.py
+│   └── question_parser.py
+├── rag/                           # 检索增强链式调用
+│   ├── rag_chain.py
+│   └── retrieve/                  # 文档检索工具
+├── resource/                      # 静态资源（头像等）
+├── README/                        # README 插图
+└── __init__.py                    # Python 包初始化
+`
+
+## 认证与会话 API
+
+认证接口统一挂载在 AUTH_SERVER_BASE_URL 下的 /auth/ 路径，返回 JSON：
+
+| 方法 | 路径              | 说明                                         |
+| ---- | ----------------- | -------------------------------------------- |
+| POST | /auth/register/ | 注册账号，参数：username、password      |
+| POST | /auth/login/    | 登录，返回 access/refresh token             |
+| POST | /auth/refresh/  | 刷新令牌，默认轮换 refresh token            |
+| POST | /auth/logout/   | 注销，需携带 Authorization: Bearer <token>，并在 body 中提供 
+efresh_token |
+| GET  | /auth/me/       | 获取当前用户信息                             |
+
+会话接口位于 /chat/ 路径，需要在请求头附带 Authorization: Bearer <access_token>：
+
+| 方法 | 路径                                    | 说明                           |
+| ---- | --------------------------------------- | ------------------------------ |
+| GET  | /chat/sessions/                       | 列出当前用户的全部会话         |
+| POST | /chat/sessions/                       | 新建会话，可指定标题           |
+| GET  | /chat/sessions/<session_id>/messages/ | 获取指定会话的消息历史         |
+| POST | /chat/sessions/<session_id>/messages/ | 写入消息，字段：sender、content、可选 model_id |
+
+更多细节、请求示例与开发建议请参考 [docs/authentication.md](docs/authentication.md)。
 
 ## 项目现状
 
-项目从原本Django+vue框架中分离，在开发时我们是设计了一个简单的前后端框架和界面的。可以提供简单的登录、注册、创建用户自己的知识库和可交互的对知识库进行增删改查的功能。但由于该部分不是本人负责，我对如何教大家如何配置该部分代码还不是很懂，各位如果希望本项目能提供相关功能，欢迎反馈，我再对项目进行更新。
-
-你可能发现了本项目类似一个大杂烩，将众多功能缝合到了一起。但其实在单独的每个功能实现上，还有很大的优化空间。
-
-例如对知识图谱的处理，目前只是匹配所有实体和与该实体直接相连的关系。其实可以增添对关系类型的判断等，优化知识图谱对大模型输出的影响，避免干扰大模型的输出。这些将在我有时间的时候进行更新，也欢迎你的意见与建议，敬请期待吧。
+当前版本已从原本的 Django + Vue 架构剥离，Gradio 成为主要交互入口；认证、会话、知识库等模块抽象为独立服务/组件，便于替换和扩展。知识图谱检索仍有优化空间（如关系类型过滤、权重调优），欢迎提交 Issue 或 PR 共同完善。
 
 ## 贡献者
 
-感谢以下成员对项目的贡献
+感谢以下成员的贡献（按字母顺序）：
 
-团队成员：
-
-- [YM](https://github.com/YM556)
-- [L-MARK](https://github.com/L-MARK)
 - [Goku-30](https://github.com/Goku-30)
+- [L-MARK](https://github.com/L-MARK)
+- [YM](https://github.com/YM556)
 - [laobaishui](https://github.com/laobaishui)
 
-开源领域大神（除了我）：
+以及所有开源贡献者：
 
 <a href="https://github.com/Warma10032/cyber-doctor/contributors">
-  <img src="https://contrib.rocks/image?repo=Warma10032/cyber-doctor" /></a>
+  <img src="https://contrib.rocks/image?repo=Warma10032/cyber-doctor" />
+</a>
 
 ## 参考项目
-
-本项目参考了以下开源项目，感谢他／她们的付出
 
 - [meet-libai](https://github.com/BinNong/meet-libai)
 
@@ -325,4 +325,4 @@ cyber-doctor/
 
 ## 用户认证与权限
 
-仓库已新增基于 Django 的认证服务（支持 JWT 与可选 Redis 黑名单/刷新机制），并与 Gradio 前端完成集成。配置方法、API 列表、运行顺序等详情请参考 `docs/authentication.md`。
+仓库已内置基于 Django 的认证服务（支持 JWT 与可选 Redis 黑名单机制），并与 Gradio 前端完成集成。配置方法、API 列表、运行顺序等详情请参考 [docs/authentication.md](docs/authentication.md)。
