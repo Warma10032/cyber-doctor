@@ -7,13 +7,9 @@ from typing import Any, Dict, Tuple
 
 import jwt
 from django.conf import settings
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AbstractBaseUser
 
 from .token_store import token_store
-
-
-User = get_user_model()
+from users.models import User
 
 
 class TokenError(Exception):
@@ -36,7 +32,7 @@ class TokenPair:
         return max(int((self.refresh_expires_at - _now()).total_seconds()), 0)
 
 
-def generate_token_pair(user: AbstractBaseUser) -> TokenPair:
+def generate_token_pair(user: User) -> TokenPair:
     now = _now()
     access_expires_at = now + timedelta(minutes=settings.ACCESS_TOKEN_LIFETIME_MINUTES)
     refresh_expires_at = now + timedelta(days=settings.REFRESH_TOKEN_LIFETIME_DAYS)
@@ -65,7 +61,7 @@ def generate_token_pair(user: AbstractBaseUser) -> TokenPair:
 
     token_store.store_refresh(
         refresh_payload["jti"],
-        str(user.pk),
+        str(user.uid),
         int((refresh_expires_at - now).total_seconds()),
     )
 
@@ -77,14 +73,14 @@ def generate_token_pair(user: AbstractBaseUser) -> TokenPair:
     )
 
 
-def refresh_from_token(refresh_token: str) -> Tuple[AbstractBaseUser, TokenPair]:
+def refresh_from_token(refresh_token: str) -> Tuple[User, TokenPair]:
     payload = decode_token(refresh_token, expected_type="refresh")
     owner = token_store.get_refresh_owner(payload["jti"])
     if owner is None or owner != payload["sub"]:
         raise TokenError("Refresh token has been revoked")
 
     try:
-        user = User.objects.get(pk=payload["sub"])
+        user = User.objects.get(uid=payload["sub"])
     except User.DoesNotExist as exc:
         raise TokenError("User no longer exists") from exc
 
@@ -136,7 +132,7 @@ def decode_token(token: str, expected_type: str | None = None) -> Dict[str, Any]
 
 def _build_payload(
     *,
-    user: AbstractBaseUser,
+    user: User,
     token_type: str,
     expires_at: datetime,
 ) -> Dict[str, Any]:
@@ -146,8 +142,8 @@ def _build_payload(
         "type": token_type,
         "exp": int(expires_at.timestamp()),
         "iat": int(now.timestamp()),
-        "sub": str(user.pk),
-        "username": user.get_username(),
+        "sub": str(user.uid),
+        "username": user.account,
     }
 
 

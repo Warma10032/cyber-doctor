@@ -32,8 +32,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "users",
-    "chat",
+    "users.apps.UsersConfig",
+    "chat.apps.ChatConfig",
 ]
 
 MIDDLEWARE = [
@@ -70,8 +70,19 @@ ASGI_APPLICATION = "authserver.asgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.environ.get("DJANGO_DB_PATH", str(BASE_DIR / "db.sqlite3")),
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": os.environ.get("DJANGO_DB_NAME", "cyber_doctor"),
+        "USER": os.environ.get("DJANGO_DB_USER", "root"),
+        "PASSWORD": os.environ.get("DJANGO_DB_PASSWORD", "123456"),
+        "HOST": os.environ.get("DJANGO_DB_HOST", "114.215.183.142"),
+        "PORT": os.environ.get("DJANGO_DB_PORT", "3306"),
+        "OPTIONS": {
+            "charset": os.environ.get("DJANGO_DB_CHARSET", "utf8mb4"),
+            "init_command": os.environ.get(
+                "DJANGO_DB_INIT_COMMAND", "SET sql_mode='STRICT_TRANS_TABLES'"
+            ),
+        },
+        "CONN_MAX_AGE": int(os.environ.get("DJANGO_DB_CONN_MAX_AGE", "60")),
     }
 }
 

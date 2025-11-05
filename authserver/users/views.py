@@ -4,12 +4,11 @@ import json
 from http import HTTPStatus
 from typing import Any, Dict, Optional, Tuple
 
-from django.contrib.auth import authenticate, get_user_model
 from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from chat.models import Account
 from core.jwt_service import (
     TokenError,
     decode_token,
@@ -17,8 +16,7 @@ from core.jwt_service import (
     refresh_from_token,
     revoke_tokens,
 )
-
-User = get_user_model()
+from users.models import User
 
 
 def _json_response(
@@ -36,16 +34,17 @@ def _parse_json(request: HttpRequest) -> Dict[str, Any]:
         if not request.body:
             return {}
         return json.loads(request.body.decode("utf-8"))
-    except json.JSONDecodeError:
-        raise ValueError("Invalid JSON body")
+    except json.JSONDecodeError as exc:
+        raise ValueError("Invalid JSON body") from exc
 
 
 def _extract_credentials(data: Dict[str, Any]) -> Tuple[str, str]:
-    username = data.get("username", "").strip()
+    account = data.get("username") or data.get("account") or ""
+    account = account.strip()
     password = data.get("password", "")
-    if not username or not password:
-        raise ValueError("Username and password are required")
-    return username, password
+    if not account or not password:
+        raise ValueError("Username/account and password are required")
+    return account, password
 
 
 def _get_bearer_token(request: HttpRequest) -> Optional[str]:
@@ -65,25 +64,27 @@ def _get_bearer_token(request: HttpRequest) -> Optional[str]:
 def register_view(request: HttpRequest) -> JsonResponse:
     try:
         payload = _parse_json(request)
-        username, password = _extract_credentials(payload)
+        account, password = _extract_credentials(payload)
     except ValueError as exc:
         return _error(str(exc), HTTPStatus.BAD_REQUEST)
 
-    if User.objects.filter(username=username).exists():
-        return _error("Username already exists", HTTPStatus.CONFLICT)
+    if User.objects.filter(account=account).exists():
+        return _error("Account already exists", HTTPStatus.CONFLICT)
 
-    user = User.objects.create_user(username=username, password=password)
-    Account.objects.create(
-        user=user,
-        account=username[:20],
-        nickname=username[:20],
-        email=user.email[:30] if user.email else "",
+    user = User(
+        account=account[:20],
+        nickname=(payload.get("nickname") or account)[:20],
+        email=(payload.get("email") or "")[:30],
+        wx_id=(payload.get("wx_id") or "")[:30],
+        phone_number=(payload.get("phone_number") or "")[:20],
     )
+    user.set_password(password)
+    user.save()
 
     return _json_response(
         {
-            "id": user.pk,
-            "username": user.get_username(),
+            "uid": user.uid,
+            "account": user.account,
             "detail": "User registered successfully",
         },
         status=HTTPStatus.CREATED,
@@ -95,27 +96,25 @@ def register_view(request: HttpRequest) -> JsonResponse:
 def login_view(request: HttpRequest) -> JsonResponse:
     try:
         payload = _parse_json(request)
-        username, password = _extract_credentials(payload)
+        account, password = _extract_credentials(payload)
     except ValueError as exc:
         return _error(str(exc), HTTPStatus.BAD_REQUEST)
 
-    user = authenticate(request, username=username, password=password)
-    if user is None:
+    try:
+        user = User.objects.get(account=account)
+    except User.DoesNotExist:
         return _error("Invalid credentials", HTTPStatus.UNAUTHORIZED)
 
-    Account.objects.get_or_create(
-        user=user,
-        defaults={
-            "account": username[:20],
-            "nickname": username[:20],
-            "email": user.email[:30] if user.email else "",
-        },
-    )
+    if not user.check_password(password):
+        return _error("Invalid credentials", HTTPStatus.UNAUTHORIZED)
+
+    user.last_login = timezone.now()
+    user.save(update_fields=["last_login"])
 
     pair = generate_token_pair(user)
     return _json_response(
         {
-            "user": {"id": user.pk, "username": user.get_username()},
+            "user": {"uid": user.uid, "account": user.account},
             "access_token": pair.access_token,
             "refresh_token": pair.refresh_token,
             "access_expires_in": pair.access_expires_in,
@@ -143,7 +142,7 @@ def refresh_view(request: HttpRequest) -> JsonResponse:
 
     return _json_response(
         {
-            "user": {"id": user.pk, "username": user.get_username()},
+            "user": {"uid": user.uid, "account": user.account},
             "access_token": pair.access_token,
             "refresh_token": pair.refresh_token,
             "access_expires_in": pair.access_expires_in,
@@ -174,13 +173,8 @@ def me_view(request: HttpRequest) -> JsonResponse:
 
     try:
         payload = decode_token(token, expected_type="access")
-        user = User.objects.get(pk=payload["sub"])
+        user = User.objects.get(uid=payload["sub"])
     except (TokenError, User.DoesNotExist):
         return _error("Invalid or expired token", HTTPStatus.UNAUTHORIZED)
 
-    return _json_response(
-        {
-            "id": user.pk,
-            "username": user.get_username(),
-        }
-    )
+    return _json_response({"uid": user.uid, "account": user.account})

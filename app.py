@@ -1,7 +1,10 @@
 import base64
 import os
 import socket
+import subprocess
+import sys
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import PyPDF2
@@ -192,9 +195,10 @@ def _is_logged_in(auth_state: Dict[str, Any]) -> bool:
 
 def _auth_status_message(auth_state: Dict[str, Any]) -> str:
     if _is_logged_in(auth_state):
-        user = auth_state["user"]
+        user = auth_state.get("user") or {}
         remaining = max(int(auth_state["access_expires_at"] - time.time()), 0)
-        return f"当前用户：**{user['username']}**（访问令牌剩余 {remaining} 秒）"
+        username = user.get("account") or user.get("username") or user.get("uid") or "用户"
+        return f"当前用户：**{username}**（访问令牌剩余 {remaining} 秒）"
     return "当前用户：未登录"
 
 
@@ -259,6 +263,43 @@ def _chat_request(
     return _http_request(url, method=method, json_data=json_data, token=token)
 
 
+def _should_auto_migrate() -> bool:
+    return (os.getenv("AUTO_MIGRATE", "true").lower() in {"1", "true", "yes", "on"})
+
+
+def ensure_database() -> None:
+    if not _should_auto_migrate():
+        return
+
+    manage_py = Path(__file__).resolve().parent / "authserver" / "manage.py"
+    if not manage_py.exists():
+        print("[auto-migrate] manage.py not found, skip database migration.")
+        return
+
+    cmd = [sys.executable, str(manage_py), "migrate", "--noinput"]
+    print("[auto-migrate] Running Django migrations...")
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        print("[auto-migrate] Migration failed.")
+        if exc.stdout:
+            print(exc.stdout.strip())
+        if exc.stderr:
+            print(exc.stderr.strip())
+        return
+
+    if result.stdout:
+        print(result.stdout.strip())
+    if result.stderr:
+        print(result.stderr.strip())
+    print("[auto-migrate] Migration completed.")
+
+
 def _state_from_login_payload(data: Dict[str, Any]) -> Dict[str, Any]:
     now = time.time()
     return {
@@ -272,7 +313,10 @@ def _state_from_login_payload(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def _resolve_user_id(auth_state: Dict[str, Any]) -> str:
     if _is_logged_in(auth_state):
-        return str(auth_state["user"]["id"])
+        user = auth_state.get("user") or {}
+        candidate = user.get("uid") or user.get("id")
+        if candidate:
+            return str(candidate)
     return "guest"
 
 
@@ -295,14 +339,52 @@ def _default_chat_state() -> Dict[str, Any]:
 
 def _format_session_title(conv: Dict[str, Any]) -> str:
     title = conv.get("title") or "新会话"
-    short_id = conv.get("id", "")[:6]
-    return f"{title} ({short_id})"
+    conversation_id = conv.get("conversation_id") or conv.get("id") or ""
+    short_id = conversation_id[:6]
+    return f"{title} ({short_id})" if short_id else title
+
+
+def _conversation_key(conversation: Dict[str, Any]) -> str | None:
+    conv_id = conversation.get("conversation_id") or conversation.get("id")
+    return conv_id
+
+
+def _normalize_conversation(conversation: Dict[str, Any]) -> Dict[str, Any] | None:
+    conv_id = _conversation_key(conversation)
+    if not conv_id:
+        return None
+    return {
+        "conversation_id": conv_id,
+        "uid": conversation.get("uid") or conversation.get("user_id"),
+        "title": conversation.get("title") or "",
+        "created_at": conversation.get("created_at"),
+        "updated_at": conversation.get("updated_at"),
+    }
+
+
+def _normalize_message(message: Dict[str, Any]) -> Dict[str, Any]:
+    sender = message.get("sender")
+    if isinstance(sender, bool):
+        sender = "user" if sender else "assistant"
+    text = message.get("message_text")
+    if text is None:
+        text = message.get("content") or ""
+    return {
+        "message_id": message.get("message_id") or message.get("id"),
+        "sender": sender,
+        "message_text": text,
+        "created_at": message.get("created_at"),
+        "model_id": message.get("model_id"),
+    }
 
 
 def _merge_session(chat_state: Dict[str, Any], conversation: Dict[str, Any]) -> None:
     sessions: List[Dict[str, Any]] = chat_state.get("sessions", [])
-    existing = {item["id"]: item for item in sessions}
-    existing[conversation["id"]] = conversation
+    existing = {item["conversation_id"]: item for item in sessions if item.get("conversation_id")}
+    conv_id = conversation.get("conversation_id")
+    if not conv_id:
+        return
+    existing[conv_id] = conversation
     # 最新的会话放前面
     chat_state["sessions"] = sorted(
         existing.values(),
@@ -322,7 +404,10 @@ def _session_selector_update(chat_state: Dict[str, Any]) -> gr.update:
         while label in options:
             label = f"{base_label} #{suffix}"
             suffix += 1
-        options[label] = conv["id"]
+        conv_id = conv.get("conversation_id") or conv.get("id")
+        if not conv_id:
+            continue
+        options[label] = conv_id
         choices.append(label)
 
     chat_state["session_options"] = options
@@ -364,13 +449,19 @@ def load_sessions(
             gr.update(choices=[], value=None, interactive=False),
         )
 
-    sessions = payload.get("sessions") or []
-    chat_state["sessions"] = sessions
+    raw_sessions = payload.get("sessions") or []
+    normalized_sessions: List[Dict[str, Any]] = []
+    for conv in raw_sessions:
+        normalized = _normalize_conversation(conv)
+        if normalized:
+            normalized_sessions.append(normalized)
+
+    chat_state["sessions"] = normalized_sessions
     chat_state["loaded"] = True
 
     current_id = chat_state.get("session_id")
-    if not current_id and sessions:
-        current_id = sessions[0]["id"]
+    if not current_id and normalized_sessions:
+        current_id = normalized_sessions[0]["conversation_id"]
     chat_state["session_id"] = current_id
 
     update = _session_selector_update(chat_state)
@@ -381,7 +472,7 @@ def _messages_to_history(messages: List[Dict[str, Any]]) -> List[List[Any]]:
     history: List[List[Any]] = []
     for msg in messages:
         sender = msg.get("sender")
-        content = msg.get("content")
+        content = msg.get("message_text") or msg.get("content")
         if sender == "user":
             history.append([content, None])
         elif sender == "assistant":
@@ -410,9 +501,10 @@ def load_messages(
     if not success:
         return chat_state, gr.update(value=[])
 
-    messages = payload.get("messages") or []
-    chat_state["messages"] = messages
-    history = _messages_to_history(messages)
+    raw_messages = payload.get("messages") or []
+    normalized_messages = [_normalize_message(msg) for msg in raw_messages]
+    chat_state["messages"] = normalized_messages
+    history = _messages_to_history(normalized_messages)
     return chat_state, gr.update(value=history)
 
 
@@ -426,7 +518,9 @@ def _create_session(
     if not _is_logged_in(auth_state):
         return chat_state, None
 
-    payload = {"title": title or ""}
+    payload: Dict[str, Any] = {}
+    if title:
+        payload["title"] = title
     success, data = _chat_request(
         "sessions/",
         method="POST",
@@ -436,9 +530,13 @@ def _create_session(
     if not success:
         return chat_state, None
 
-    chat_state["session_id"] = data["id"]
-    _merge_session(chat_state, data)
-    return chat_state, data
+    normalized = _normalize_conversation(data)
+    if not normalized:
+        return chat_state, None
+
+    chat_state["session_id"] = normalized["conversation_id"]
+    _merge_session(chat_state, normalized)
+    return chat_state, normalized
 
 
 def ensure_session(
@@ -451,7 +549,7 @@ def ensure_session(
     if chat_state.get("session_id"):
         return chat_state, chat_state["session_id"]
     chat_state, conversation = _create_session(auth_state, chat_state, title=title)
-    session_id = conversation["id"] if conversation else None
+    session_id = conversation["conversation_id"] if conversation else None
     chat_state["session_id"] = session_id
     return chat_state, session_id
 
@@ -476,7 +574,11 @@ def save_message(
     auth_state = auth_state or _default_auth_state()
     if not _is_logged_in(auth_state):
         return
-    payload: Dict[str, Any] = {"sender": sender, "content": content}
+    payload: Dict[str, Any] = {
+        "sender": sender,
+        "message_text": content,
+        "content": content,
+    }
     if model_id is not None:
         payload["model_id"] = model_id
     _chat_request(
@@ -533,7 +635,7 @@ def update_user_panel(
     auth_state = auth_state or _default_auth_state()
     if _is_logged_in(auth_state):
         user = auth_state.get("user") or {}
-        username = user.get("username") or "已登录用户"
+        username = user.get("account") or user.get("username") or user.get("uid") or "已登录用户"
         info = f"👤 当前用户：**{username}**"
         return (
             info,
@@ -571,7 +673,7 @@ def new_session_action(
     title = time.strftime("对话 %H:%M:%S")
     chat_state, conversation = _create_session(auth_state, chat_state, title=title)
     if conversation:
-        chat_state["session_id"] = conversation["id"]
+        chat_state["session_id"] = conversation["conversation_id"]
     return chat_state, _session_selector_update(chat_state), gr.update(value=[])
 
 
@@ -1439,4 +1541,5 @@ def start_gradio():
 
 
 if __name__ == "__main__":
+    ensure_database()
     start_gradio()

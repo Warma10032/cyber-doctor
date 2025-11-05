@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from django.contrib.auth import get_user_model
+
 from django.db import models
 
-User = get_user_model()
+from users.models import User
 
 
 def _short_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
-
-
-def generate_user_id() -> str:
-    return uuid.uuid4().hex[:10]
 
 
 def generate_conversation_id() -> str:
@@ -23,51 +19,33 @@ def generate_message_id() -> str:
     return _short_id("msg")
 
 
-class Account(models.Model):
-    user = models.OneToOneField(
-        User,
-        on_delete=models.CASCADE,
-        related_name="account",
-        db_column="auth_user_id",
-    )
-    user_code = models.CharField(
-        max_length=10,
-        primary_key=True,
-        default=generate_user_id,
-        editable=False,
-        db_column="user_id",
-    )
-    account = models.CharField(max_length=20, unique=True)
-    nickname = models.CharField(max_length=20, blank=True)
-    email = models.CharField(max_length=30, blank=True)
-    wechat = models.CharField(max_length=30, blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    last_login_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = "account"
-
-    def __str__(self) -> str:  # pragma: no cover - human readable
-        return self.account
-
-
 class ModelInfo(models.Model):
-    name = models.CharField(max_length=25)
+    model_id = models.AutoField(primary_key=True)
+    model_name = models.CharField(max_length=25)
     description = models.TextField(blank=True)
-    api = models.CharField(max_length=50, blank=True)
+    api_key = models.CharField(max_length=50)
 
     class Meta:
-        db_table = "model_info"
+        db_table = "model"
 
-    def __str__(self) -> str:  # pragma: no cover - human readable
-        return self.name
+    def __str__(self) -> str:  # pragma: no cover
+        return self.model_name
 
 
 class Conversation(models.Model):
-    id = models.CharField(primary_key=True, max_length=50, default=generate_conversation_id, editable=False)
-    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="conversations")
-    title = models.CharField(max_length=255, blank=True)
+    conversation_id = models.CharField(
+        primary_key=True,
+        max_length=50,
+        default=generate_conversation_id,
+        editable=False,
+    )
+    user = models.ForeignKey(
+        User,
+        db_column="uid",
+        to_field="uid",
+        on_delete=models.CASCADE,
+        related_name="conversations",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -75,26 +53,40 @@ class Conversation(models.Model):
         db_table = "conversation"
         ordering = ["-updated_at"]
 
-    def __str__(self) -> str:  # pragma: no cover - human readable
-        return self.title or self.id
+    def __str__(self) -> str:  # pragma: no cover
+        return self.conversation_id
 
 
 class Message(models.Model):
-    SENDER_CHOICES = (
-        ("user", "User"),
-        ("assistant", "Assistant"),
+    message_id = models.CharField(
+        primary_key=True,
+        max_length=50,
+        default=generate_message_id,
+        editable=False,
     )
-
-    id = models.CharField(primary_key=True, max_length=50, default=generate_message_id, editable=False)
-    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="messages")
-    sender = models.CharField(max_length=10, choices=SENDER_CHOICES)
-    content = models.TextField()
+    conversation = models.ForeignKey(
+        Conversation,
+        db_column="conversation_id",
+        to_field="conversation_id",
+        on_delete=models.CASCADE,
+        related_name="messages",
+    )
+    sender = models.BooleanField()
+    message_text = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
-    model = models.ForeignKey(ModelInfo, null=True, blank=True, on_delete=models.SET_NULL, related_name="messages")
+    model = models.ForeignKey(
+        ModelInfo,
+        db_column="model_id",
+        to_field="model_id",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="messages",
+    )
 
     class Meta:
         db_table = "message"
         ordering = ["created_at"]
 
-    def __str__(self) -> str:  # pragma: no cover - human readable
-        return f"{self.sender}: {self.content[:20]}"
+    def __str__(self) -> str:  # pragma: no cover
+        return self.message_id

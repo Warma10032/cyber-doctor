@@ -147,8 +147,15 @@ PY_ENVIRONMENT=web
 GRADIO_HOST=127.0.0.1
 GRADIO_PORT=10032
 GRADIO_SHARE=false
-# Django 认证
-DJANGO_DB_PATH=authserver/db.sqlite3  # 可选：自定义数据库路径
+# Django 认证（默认连接远程 MySQL）
+DJANGO_DB_NAME=cyber_doctor
+DJANGO_DB_USER=root
+DJANGO_DB_PASSWORD=123456
+DJANGO_DB_HOST=114.215.183.142
+DJANGO_DB_PORT=3306
+DJANGO_DB_CHARSET=utf8mb4
+DJANGO_DB_CONN_MAX_AGE=60
+AUTO_MIGRATE=true
 # JWT & Redis
 JWT_SECRET_KEY=随机字符串
 JWT_ALGORITHM=HS256
@@ -181,7 +188,6 @@ cyber-doctor/
 │  └─ __init__.py
 ├─ authserver/                  # Django 认证与会话服务
 │  ├─ manage.py
-│  ├─ db.sqlite3                # 默认本地数据库（可配置）
 │  ├─ token_store.json          # 本地 token 存储（未用 Redis 时）
 │  ├─ authserver/               # Django settings/urls/asgi/wsgi
 │  ├─ core/                     # JWT 与 token 管理

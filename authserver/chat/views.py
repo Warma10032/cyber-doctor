@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from django.contrib.auth import get_user_model
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -11,9 +10,9 @@ from django.views.decorators.http import require_http_methods
 
 from core.jwt_service import decode_token, TokenError
 
-from .models import Account, Conversation, Message, ModelInfo
+from users.models import User
 
-User = get_user_model()
+from .models import Conversation, Message, ModelInfo
 
 
 def _json_response(data: Any, *, status: int = 200) -> JsonResponse:
@@ -33,21 +32,6 @@ def _authorization_header(request: HttpRequest) -> str | None:
     return request.headers.get("Authorization") or request.META.get("HTTP_AUTHORIZATION")
 
 
-def _get_or_create_account(user: User) -> Account:
-    account, created = Account.objects.get_or_create(
-        user=user,
-        defaults={
-            "account": user.username[:20],
-            "nickname": user.username[:20],
-            "email": user.email[:30] if user.email else "",
-        },
-    )
-    if created:
-        account.last_login_at = timezone.now()
-        account.save(update_fields=["last_login_at"])
-    return account
-
-
 def jwt_required(view_func):
     def wrapped(request: HttpRequest, *args, **kwargs):
         header = _authorization_header(request)
@@ -56,12 +40,11 @@ def jwt_required(view_func):
         token = header.split(" ", 1)[1]
         try:
             payload = decode_token(token, expected_type="access")
-            user = User.objects.get(pk=payload["sub"])
+            user = User.objects.get(uid=payload["sub"])
         except (TokenError, User.DoesNotExist):
             return _json_response({"detail": "Invalid or expired token"}, status=401)
 
         request.user = user  # type: ignore[attr-defined]
-        request.account = _get_or_create_account(user)  # type: ignore[attr-defined]
         return view_func(request, *args, **kwargs)
 
     return wrapped
@@ -69,9 +52,8 @@ def jwt_required(view_func):
 
 def _conversation_to_dict(conv: Conversation) -> Dict[str, Any]:
     return {
-        "id": conv.id,
-        "title": conv.title,
-        "user_id": conv.account.user_code,
+        "conversation_id": conv.conversation_id,
+        "uid": conv.user_id,
         "created_at": conv.created_at.isoformat(),
         "updated_at": conv.updated_at.isoformat(),
     }
@@ -79,9 +61,9 @@ def _conversation_to_dict(conv: Conversation) -> Dict[str, Any]:
 
 def _message_to_dict(msg: Message) -> Dict[str, Any]:
     return {
-        "id": msg.id,
-        "sender": msg.sender,
-        "content": msg.content,
+        "message_id": msg.message_id,
+        "sender": "user" if msg.sender else "assistant",
+        "message_text": msg.message_text,
         "created_at": msg.created_at.isoformat(),
         "model_id": msg.model_id,
     }
@@ -91,10 +73,10 @@ def _message_to_dict(msg: Message) -> Dict[str, Any]:
 @jwt_required
 @require_http_methods(["GET", "POST"])
 def sessions_view(request: HttpRequest) -> JsonResponse:
-    account: Account = request.account  # type: ignore[attr-defined]
+    user: User = request.user  # type: ignore[attr-defined]
 
     if request.method == "GET":
-        conversations = Conversation.objects.filter(account=account)
+        conversations = Conversation.objects.filter(user=user)
         return _json_response({"sessions": [_conversation_to_dict(conv) for conv in conversations]})
 
     try:
@@ -102,8 +84,14 @@ def sessions_view(request: HttpRequest) -> JsonResponse:
     except ValueError as exc:
         return _json_response({"detail": str(exc)}, status=400)
 
-    title = (payload.get("title") or "").strip()
-    conversation = Conversation.objects.create(account=account, title=title)
+    conversation_id = payload.get("conversation_id")
+    if conversation_id:
+        conversation = Conversation.objects.create(
+            conversation_id=conversation_id,
+            user=user,
+        )
+    else:
+        conversation = Conversation.objects.create(user=user)
     return _json_response(_conversation_to_dict(conversation), status=201)
 
 
@@ -111,10 +99,10 @@ def sessions_view(request: HttpRequest) -> JsonResponse:
 @jwt_required
 @require_http_methods(["GET", "POST"])
 def messages_view(request: HttpRequest, conversation_id: str) -> JsonResponse:
-    account: Account = request.account  # type: ignore[attr-defined]
+    user: User = request.user  # type: ignore[attr-defined]
 
     try:
-        conversation = Conversation.objects.get(id=conversation_id, account=account)
+        conversation = Conversation.objects.get(conversation_id=conversation_id, user=user)
     except Conversation.DoesNotExist:
         return _json_response({"detail": "Conversation not found"}, status=404)
 
@@ -127,12 +115,14 @@ def messages_view(request: HttpRequest, conversation_id: str) -> JsonResponse:
     except ValueError as exc:
         return _json_response({"detail": str(exc)}, status=400)
 
-    sender = payload.get("sender")
-    if sender not in {"user", "assistant"}:
+    sender_value = payload.get("sender")
+    if sender_value not in {"user", "assistant", True, False}:
         return _json_response({"detail": "sender must be 'user' or 'assistant'"}, status=400)
 
-    content = (payload.get("content") or "").strip()
-    if not content:
+    sender = True if sender_value in {"user", True} else False
+
+    message_text = (payload.get("message_text") or payload.get("content") or "").strip()
+    if not message_text:
         return _json_response({"detail": "content is required"}, status=400)
 
     model_id = payload.get("model_id")
@@ -146,7 +136,7 @@ def messages_view(request: HttpRequest, conversation_id: str) -> JsonResponse:
     message = Message.objects.create(
         conversation=conversation,
         sender=sender,
-        content=content,
+        message_text=message_text,
         model=model_instance,
     )
 
