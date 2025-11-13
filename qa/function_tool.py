@@ -1,6 +1,7 @@
 '''存放处理不同问答类型的工具函数，核心文件'''
 
 import base64
+import os
 from typing import Callable, List, Dict, Tuple
 import time
 import json
@@ -25,7 +26,9 @@ from kg.Graph import GraphDao
 from config.config import Config
 from qa.purpose_type import userPurposeType
 from env import get_env_value
-
+# qa/function_tool.py
+from .utils.oss_uploader import upload_image_to_oss
+import httpx
 
 _dao = GraphDao()
 
@@ -135,37 +138,41 @@ def process_images_tool(question_type, question, history, image_url=None):
 
 
 def process_image_describe_tool(question_type, question, history, image_url=None):
+    client = Clientfactory.get_special_client(client_type=question_type)
     if question == "请你将下面的句子修饰后输出，不要包含额外的文字，句子:'请问您有什么想了解的，我将尽力为您服务'":
         question = "描述这个图片，说明这个图片的主要内容"
-    image_bases = []
-    for img_url in image_url:
-        if is_file_path(img_url):
-            with open(img_url, "rb") as img_file:
-                image_base = base64.b64encode(img_file.read()).decode("utf-8")
-                image_bases.append(image_base)
+    
+    # 上传本地图片到 OSS 获取公网 URL
+    public_urls = []
+    for img_path in image_url:
+        if os.path.exists(img_path):  # 本地文件
+            oss_url = upload_image_to_oss(img_path)
+            if oss_url:
+                public_urls.append(oss_url)
+            else:
+                # 上传失败，回退到 Data URL
+                mime_type, _ = mimetypes.guess_type(img_path)
+                if mime_type is None:
+                    mime_type = "image/jpeg"
+                with open(img_path, "rb") as f:
+                    data_url = f"data:{mime_type};base64,{base64.b64encode(f.read()).decode()}"
+                    public_urls.append(data_url)
         else:
-            image_bases.append(img_url)
+            # 已经是 URL
+            public_urls.append(img_path)
 
-    # 构建 messages 内容
+    # 构建消息（使用公网 URL）
     message_content = []
-    for image_base in image_bases:
-        message_content.append({"type": "image_url", "image_url": {"url": image_base}})
-    # 添加问题的文本内容
+    for url in public_urls:
+        message_content.append({"type": "image_url", "image_url": {"url": url}})
     message_content.append({"type": "text", "text": question})
 
     client = Clientfactory.get_special_client(client_type=question_type)
-    # 发送请求
     response = client.chat.completions.create(
         model=get_env_value("IMAGE_DESCRIBE_MODEL"),
-        messages=[
-            {
-                "role": "user",
-                "content": message_content,
-            }
-        ],
+        messages=[{"role": "user", "content": message_content}],
     )
-    return (response.choices[0].message.content, question_type)
-
+    return response.choices[0].message.content
 
 def process_ppt_tool(
     question_type, question: str, history: List[List[str] | None] = None, image_url=None

@@ -34,16 +34,28 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 AUTH_STORAGE_KEY = "cyber-doctor-auth"
 
+# 修改全局的 JS_SAVE_AUTH 常量
 JS_SAVE_AUTH = f"""
 function(auth_state) {{
+    console.log('[JS] Saving auth_state:', auth_state);
+    // 在 window 上也存一份，供其他地方使用
+    if (auth_state) {{
+        window.__auth_state__ = auth_state;
+        console.log('[JS] Stored in window.__auth_state__');
+    }}
+    
     if (auth_state && auth_state.user) {{
-        localStorage.setItem('{AUTH_STORAGE_KEY}', JSON.stringify(auth_state));
+        const dataStr = JSON.stringify(auth_state);
+        localStorage.setItem('{AUTH_STORAGE_KEY}', dataStr);
+        console.log('[JS] ✓ Auth saved to localStorage, user:', auth_state.user.account);
     }} else {{
         localStorage.removeItem('{AUTH_STORAGE_KEY}');
+        console.log('[JS] Auth cleared from localStorage');
     }}
     return auth_state;
 }}
 """
+
 
 JS_LOAD_AUTH = f"""
 function() {{
@@ -83,7 +95,7 @@ APP_CSS = """
     min-height: 100vh;
 }
 #sidebar {
-    background: #f8f9fc;
+    background: #4169E1;  /* 宝蓝色侧边栏 */
     padding: 16px;
     gap: 12px;
     border-right: 1px solid #e5e7eb;
@@ -94,7 +106,26 @@ APP_CSS = """
 #sidebar-toggle {
     width: 48px;
 }
+/* AI医生标题 - 黑色 */
+#sidebar-title h2 {
+    color: #000000 !important;
+}
+/* 历史会话标题 - 黑色 */
+#history-title h4 {
+    color: #000000 !important;
+}
+/* 当前用户信息 - 黑色 */
+#user-info {
+    color: #000000 !important;
+}
+#user-info p,
+#user-info strong {
+    color: #000000 !important;
+}
 """
+
+
+
 
 TITLE_SYSTEM_PROMPT = (
     "你是一名医疗问答助手，需要根据首轮对话内容生成8-16字的会话主题，"
@@ -142,6 +173,11 @@ def audio_to_text(audio_file_path):
         text_simplified = convert_to_simplified(text)
     return text_simplified
 
+def close_modal_handler():
+    """关闭模态框处理函数"""
+    print("[DEBUG] close_modal_handler() called")
+    ic("Closing modal")
+    return gr.update(visible=False)
 
 # pip install PyPDF2
 def pdf_to_str(pdf_file):
@@ -817,7 +853,10 @@ def show_modal() -> gr.update:
 
 
 def hide_modal() -> gr.update:
+    print("[DEBUG] hide_modal() called")
+    ic("hide_modal called")
     return gr.update(visible=False)
+
 
 
 def update_user_panel(
@@ -988,21 +1027,22 @@ def grodio_view(chatbot, chat_input, auth_state, chat_state):
             print(f"Unknown file type: {file_type}")
 
     # 图片文件解析
-    if images != []:
-        image_url = images
-        image_base64 = [image_to_base64(image) for image in image_url]
+    # if images != []:
+    #     image_url = images
+    #     image_base64 = [image_to_base64(image) for image in image_url]
 
-        for i, image in enumerate(image_base64):
-            chatbot[-1][
-                0
-            ] += f"""
-                <div>
-                    <img src="data:image/png;base64,{image}" alt="Generated Image" style="max-width: 100%; height: auto; cursor: pointer;" />
-                </div>
-                """
-            yield chatbot, auth_state
-    else:
-        image_url = None
+    #     for i, image in enumerate(image_base64):
+    #         chatbot[-1][
+    #             0
+    #         ] += f"""
+    #             <div>
+    #                 <img src="data:image/png;base64,{image}" alt="Generated Image" style="max-width: 100%; height: auto; cursor: pointer;" />
+    #             </div>
+    #             """
+    #         yield chatbot, auth_state
+    # else:
+    #     image_url = None
+    image_url = images if images else None
 
     question_type = parse_question(user_message, image_url)
     ic(question_type)
@@ -1078,10 +1118,31 @@ def grodio_view(chatbot, chat_input, auth_state, chat_state):
 
     # 处理图片描述
     if answer[1] == userPurposeType.ImageDescribe:
-        for i in range(0, len(answer[0]), 1):
-            bot_response += answer[0][i : i + 1]  # 累加当前chunk到combined_message
-            chatbot[-1][1] = bot_response  # 更新chatbot对话中的最后一条消息
-            yield chatbot, auth_state, chat_state, sessions_update  # 实时输出当前累积的对话内容
+        # answer[0] 应该是文字描述（不是 Base64）
+        description = answer[0]
+        # 如果需要显示原图 + 描述
+        if image_url:
+            # 上传原图到 OSS 获取公网 URL
+            from qa.utils.oss_uploader import upload_image_to_oss
+            oss_urls = []
+            for img_path in image_url:
+                oss_url = upload_image_to_oss(img_path)
+                if oss_url:
+                    oss_urls.append(oss_url)
+            
+            # 构建响应：图片 + 描述
+            image_html = ""
+            for url in oss_urls:
+                image_html += f'<img src="{url}" style="max-width: 100%; height: auto;" />'
+            
+            bot_response = f"{image_html}\n\n{description}"
+            chatbot[-1][1] = bot_response
+        else:
+            # 纯文字描述
+            bot_response = description
+            chatbot[-1][1] = bot_response
+        
+        yield chatbot, auth_state, chat_state, sessions_update
 
     # 处理视频
     if answer[1] == userPurposeType.Video:
@@ -1381,7 +1442,8 @@ with gr.Blocks(css=APP_CSS, analytics_enabled=False) as demo:
     chat_state = gr.State(_default_chat_state())
     sidebar_state = gr.State(True)
 
-    with gr.Column(visible=False, elem_id="auth-modal") as auth_modal:
+    # 修改 auth_modal 的初始化
+    with gr.Column(visible=False, elem_id="auth-modal", scale=0) as auth_modal:
         with gr.Group():
             gr.Markdown("### 账户中心")
             username_input = gr.Textbox(
@@ -1398,13 +1460,14 @@ with gr.Blocks(css=APP_CSS, analytics_enabled=False) as demo:
                 close_modal_button = gr.Button("关闭")
             auth_feedback = gr.Markdown("")
 
+
     with gr.Row(elem_id="layout", equal_height=True):
         with gr.Column(elem_id="sidebar", scale=0, min_width=260) as sidebar_column:
-            gr.Markdown("## 「赛博华佗」🩺")
+            gr.Markdown("## 「AI医生」🩺", elem_id="sidebar-title")
             new_session_button = gr.Button(
                 "＋ 新建会话", variant="secondary", interactive=False
             )
-            gr.Markdown("#### 历史会话")
+            gr.Markdown("#### 历史会话",elem_id="history-title")
             session_list = gr.Radio(
                 choices=[],
                 value=None,
@@ -1412,7 +1475,7 @@ with gr.Blocks(css=APP_CSS, analytics_enabled=False) as demo:
                 show_label=False,
             )
             gr.Markdown("---")
-            user_info_md = gr.Markdown("👤 当前用户：未登录")
+            user_info_md = gr.Markdown("👤 当前用户：未登录",elem_id="user-info")
             login_open_button = gr.Button("登录", variant="primary")
             logout_button = gr.Button("退出登录", variant="secondary", visible=False)
 
@@ -1471,11 +1534,36 @@ with gr.Blocks(css=APP_CSS, analytics_enabled=False) as demo:
         outputs=[auth_modal],
     )
 
+    # 修改 close_modal_button 的事件链
     close_modal_button.click(
-        fn=hide_modal,
+        fn=close_modal_handler,
         inputs=None,
         outputs=[auth_modal],
+        js="""
+        function() {
+            console.log('[JS-DEBUG] === Close Modal - Force Hide ===');
+            
+            try {
+                const mainModal = document.getElementById('auth-modal');
+                if (mainModal) {
+                    mainModal.style.cssText = 'display: none !important; visibility: hidden !important;';
+                    console.log('[JS-DEBUG] ✓ Modal hidden');
+                }
+                
+                document.body.style.overflow = 'auto';
+                console.log('[JS-DEBUG] ✓ Close Modal Complete');
+                
+            } catch(error) {
+                console.error('[JS-ERROR]', error);
+            }
+            
+            return true;
+        }
+        """
     )
+
+
+
 
     register_button.click(
         fn=register_action,
