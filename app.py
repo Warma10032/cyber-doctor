@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from opencc import OpenCC
 from pydub import AudioSegment
 
 from audio.audio_generate import audio_generate
+from client.clientfactory import Clientfactory
 from env import get_env_value
 from model.RAG.retrieve_model import INSTANCE as RAG_INSTANCE
 from qa.answer import get_answer
@@ -93,6 +95,17 @@ APP_CSS = """
     width: 48px;
 }
 """
+
+TITLE_SYSTEM_PROMPT = (
+    "你是一名医疗问答助手，需要根据首轮对话内容生成8-16字的会话主题，"
+    "语言保持中文，突出健康/医疗意图，不要包含序号、引号或表情。"
+)
+TITLE_MAX_LENGTH = 30
+TITLE_MIN_LENGTH = 4
+DEFAULT_SESSION_TITLE = "新会话"
+AUTO_REFRESH_THRESHOLD = 60  # 自动刷新判定阈值（秒）
+
+_title_client = None
 
 # pip install whisper
 # pip install openai-whisper
@@ -198,7 +211,7 @@ def _auth_status_message(auth_state: Dict[str, Any]) -> str:
         user = auth_state.get("user") or {}
         remaining = max(int(auth_state["access_expires_at"] - time.time()), 0)
         username = user.get("account") or user.get("username") or user.get("uid") or "用户"
-        return f"当前用户：**{username}**（访问令牌剩余 {remaining} 秒）"
+        return f"当前用户：**{username}**"
     return "当前用户：未登录"
 
 
@@ -311,6 +324,40 @@ def _state_from_login_payload(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _auto_refresh_auth_state(auth_state: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
+    auth_state = auth_state or _default_auth_state()
+    now = time.time()
+    refresh_token = auth_state.get("refresh_token")
+    if not refresh_token:
+        if auth_state.get("access_expires_at", 0.0) <= now:
+            return _default_auth_state(), bool(auth_state.get("user"))
+        return auth_state, False
+
+    refresh_exp = auth_state.get("refresh_expires_at", 0.0)
+    if refresh_exp <= now:
+        return _default_auth_state(), True
+
+    access_exp = auth_state.get("access_expires_at", 0.0)
+    if access_exp > now + AUTO_REFRESH_THRESHOLD:
+        return auth_state, False
+
+    success, payload = _auth_request(
+        "refresh/",
+        json_data={"refresh_token": refresh_token},
+    )
+    if not success:
+        print(f"[auth] auto refresh failed: {payload}")
+        return _default_auth_state(), True
+
+    return _state_from_login_payload(payload), True
+
+
+def prepare_auth_state_on_load(auth_state: Dict[str, Any] | None) -> Dict[str, Any]:
+    state = auth_state or _default_auth_state()
+    new_state, _ = _auto_refresh_auth_state(state)
+    return new_state
+
+
 def _resolve_user_id(auth_state: Dict[str, Any]) -> str:
     if _is_logged_in(auth_state):
         user = auth_state.get("user") or {}
@@ -334,14 +381,56 @@ def _default_chat_state() -> Dict[str, Any]:
         "sessions": [],
         "loaded": False,
         "session_options": {},
+        "title_generated": {},
     }
 
 
+def _title_map(chat_state: Dict[str, Any]) -> Dict[str, bool]:
+    mapping = chat_state.get("title_generated")
+    if not isinstance(mapping, dict):
+        mapping = {}
+        chat_state["title_generated"] = mapping
+    return mapping
+
+
+def _mark_session_title_status(chat_state: Dict[str, Any], conversation: Dict[str, Any]) -> None:
+    conv_id = conversation.get("conversation_id")
+    if not conv_id:
+        return
+    mapping = _title_map(chat_state)
+    raw_title = (conversation.get("title") or "").strip()
+    if not raw_title or raw_title == DEFAULT_SESSION_TITLE:
+        mapping.setdefault(conv_id, False)
+    else:
+        mapping[conv_id] = True
+
+
+def _set_title_generated(chat_state: Dict[str, Any], session_id: str, value: bool) -> None:
+    mapping = _title_map(chat_state)
+    mapping[session_id] = value
+
+
+def _should_generate_title(chat_state: Dict[str, Any], session_id: str | None) -> bool:
+    if not session_id:
+        return False
+    mapping = _title_map(chat_state)
+    return not mapping.get(session_id, False)
+
+
+def _update_local_session_title(chat_state: Dict[str, Any], session_id: str, title: str) -> None:
+    sessions = chat_state.get("sessions") or []
+    for conv in sessions:
+        if conv.get("conversation_id") == session_id:
+            conv["title"] = title
+            break
+
+
+DEFAULT_SESSION_TITLE = "新会话"
+
+
 def _format_session_title(conv: Dict[str, Any]) -> str:
-    title = conv.get("title") or "新会话"
-    conversation_id = conv.get("conversation_id") or conv.get("id") or ""
-    short_id = conversation_id[:6]
-    return f"{title} ({short_id})" if short_id else title
+    title = (conv.get("title") or "").strip()
+    return title or DEFAULT_SESSION_TITLE
 
 
 def _conversation_key(conversation: Dict[str, Any]) -> str | None:
@@ -385,6 +474,7 @@ def _merge_session(chat_state: Dict[str, Any], conversation: Dict[str, Any]) -> 
     if not conv_id:
         return
     existing[conv_id] = conversation
+    _mark_session_title_status(chat_state, conversation)
     # 最新的会话放前面
     chat_state["sessions"] = sorted(
         existing.values(),
@@ -457,6 +547,8 @@ def load_sessions(
             normalized_sessions.append(normalized)
 
     chat_state["sessions"] = normalized_sessions
+    for conv in normalized_sessions:
+        _mark_session_title_status(chat_state, conv)
     chat_state["loaded"] = True
 
     current_id = chat_state.get("session_id")
@@ -597,6 +689,105 @@ def _message_content_for_storage(value: Any) -> str:
     return str(value)
 
 
+def _get_title_client():
+    global _title_client
+    if _title_client is None:
+        try:
+            _title_client = Clientfactory().get_client()
+        except Exception as exc:  # pragma: no cover - graceful degradation
+            print(f"[title] 初始化模型失败: {exc}")
+            _title_client = None
+    return _title_client
+
+
+def _clean_title_text(text: str) -> str:
+    normalized = (text or "").strip()
+    normalized = re.sub(r"[\r\n\t]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = re.sub(r"[\"'“”‘’`]+", "", normalized)
+    if len(normalized) > TITLE_MAX_LENGTH:
+        normalized = normalized[:TITLE_MAX_LENGTH]
+    return normalized
+
+
+def _fallback_title(user_text: str) -> str:
+    fallback = (user_text or "新会话").strip()
+    if not fallback:
+        fallback = "新会话"
+    fallback = re.sub(r"\s+", " ", fallback)
+    if len(fallback) > TITLE_MAX_LENGTH:
+        fallback = fallback[:TITLE_MAX_LENGTH]
+    return fallback
+
+
+def _generate_session_title_summary(user_text: str, assistant_text: str) -> str:
+    fallback = _fallback_title(user_text)
+    client = _get_title_client()
+    if not client:
+        return fallback
+
+    content = (
+        "请根据下面的用户提问与助手回答，总结一个中文会话主题。"
+        "要求突出医疗或健康意图，8-16个字以内，不要出现标点或序号。\n"
+        f"用户提问：{user_text[:400]}\n"
+        f"助手回答：{assistant_text[:400]}"
+    )
+
+    try:
+        response = client.chat_using_messages(
+            [
+                {"role": "system", "content": TITLE_SYSTEM_PROMPT},
+                {"role": "user", "content": content},
+            ]
+        )
+    except Exception as exc:  # pragma: no cover
+        print(f"[title] 生成失败: {exc}")
+        return fallback
+
+    cleaned = _clean_title_text(response or "")
+    if len(cleaned) < TITLE_MIN_LENGTH:
+        return fallback
+    return cleaned
+
+
+def _update_remote_session_title(
+    auth_state: Dict[str, Any], session_id: str, title: str
+) -> bool:
+    if not _is_logged_in(auth_state):
+        return False
+    success, payload = _chat_request(
+        f"sessions/{session_id}/",
+        method="PATCH",
+        json_data={"title": title},
+        token=auth_state.get("access_token"),
+    )
+    if not success:
+        print(f"[title] 更新会话标题失败: {payload}")
+        return False
+    return True
+
+
+def _maybe_generate_session_title(
+    auth_state: Dict[str, Any],
+    chat_state: Dict[str, Any],
+    session_id: str,
+    user_message: str,
+    assistant_message: str,
+) -> None:
+    if not _should_generate_title(chat_state, session_id):
+        return
+    user_message = (user_message or "").strip()
+    assistant_message = (assistant_message or "").strip()
+    if not user_message:
+        return
+    summary = _generate_session_title_summary(user_message, assistant_message)
+    if not summary:
+        return
+    if _update_remote_session_title(auth_state, session_id, summary):
+        _set_title_generated(chat_state, session_id, True)
+        _update_local_session_title(chat_state, session_id, summary)
+
+
 def reset_chat_ui() -> Tuple[Dict[str, Any], gr.update, gr.update]:
     chat_state = _default_chat_state()
     return (
@@ -670,8 +861,7 @@ def new_session_action(
         chat_state = _default_chat_state()
         return chat_state, gr.update(interactive=False), gr.update(value=[])
 
-    title = time.strftime("对话 %H:%M:%S")
-    chat_state, conversation = _create_session(auth_state, chat_state, title=title)
+    chat_state, conversation = _create_session(auth_state, chat_state)
     if conversation:
         chat_state["session_id"] = conversation["conversation_id"]
     return chat_state, _session_selector_update(chat_state), gr.update(value=[])
@@ -736,28 +926,6 @@ def register_action(username: str, password: str):
     return f"注册成功：{username}，请登录。"
 
 
-def refresh_action(auth_state: Dict[str, Any] | None):
-    auth_state = auth_state or _default_auth_state()
-    refresh_token = auth_state.get("refresh_token")
-    if not refresh_token:
-        return (
-            auth_state,
-            _auth_status_message(auth_state),
-            "刷新失败：请先登录。",
-        )
-
-    success, payload = _auth_request(
-        "refresh/",
-        json_data={"refresh_token": refresh_token},
-    )
-    if not success:
-        new_state = _default_auth_state()
-        return new_state, _auth_status_message(new_state), f"刷新失败：{payload}"
-
-    new_state = _state_from_login_payload(payload)
-    return new_state, _auth_status_message(new_state), "刷新成功。"
-
-
 def logout_action(auth_state: Dict[str, Any] | None):
     auth_state = auth_state or _default_auth_state()
     if _is_logged_in(auth_state):
@@ -781,7 +949,6 @@ def grodio_view(chatbot, chat_input, auth_state, chat_state):
     chat_state, session_id = ensure_session(
         auth_state,
         chat_state,
-        title=(chat_input["text"] or "").strip()[:50],
     )
     if session_id and session_id != session_before:
         sessions_update = _session_selector_update(chat_state)
@@ -979,6 +1146,13 @@ def grodio_view(chatbot, chat_input, auth_state, chat_state):
             "assistant",
             _message_content_for_storage(bot_response),
         )
+        _maybe_generate_session_title(
+            auth_state,
+            chat_state,
+            session_id,
+            user_message,
+            _message_content_for_storage(bot_response),
+        )
         chat_state, sessions_update = load_sessions(auth_state, chat_state)
 
     yield chatbot, auth_state, chat_state, sessions_update
@@ -1125,6 +1299,13 @@ def gradio_audio_view(chatbot, audio_input, auth_state, chat_state):
             "assistant",
             _message_content_for_storage(bot_response or assistant_content),
         )
+        _maybe_generate_session_title(
+            auth_state,
+            chat_state,
+            session_id,
+            user_message,
+            _message_content_for_storage(bot_response or assistant_content),
+        )
         chat_state, sessions_update = load_sessions(auth_state, chat_state)
 
     yield chatbot, auth_state, chat_state, sessions_update
@@ -1213,7 +1394,6 @@ with gr.Blocks(css=APP_CSS, analytics_enabled=False) as demo:
                 login_button = gr.Button("登录", variant="primary")
                 register_button = gr.Button("注册")
             with gr.Row():
-                refresh_button = gr.Button("刷新令牌", variant="secondary")
                 logout_modal_button = gr.Button("退出登录", variant="secondary")
                 close_modal_button = gr.Button("关闭")
             auth_feedback = gr.Markdown("")
@@ -1252,7 +1432,7 @@ with gr.Blocks(css=APP_CSS, analytics_enabled=False) as demo:
                     {"left": "$$", "right": "$$", "display": True},
                     {"left": "$", "right": "$", "display": True},
                 ],
-                placeholder="\n## 欢迎与我对话 \n————本项目开源地址https://github.com/Warma10032/cyber-doctor",
+                placeholder="\n## 欢迎与我对话 \n",
             )
             with gr.Row():
                 with gr.Column(scale=9):
@@ -1334,38 +1514,6 @@ with gr.Blocks(css=APP_CSS, analytics_enabled=False) as demo:
         outputs=[auth_modal],
     )
     login_event.then(
-        None,
-        inputs=[auth_state],
-        outputs=[auth_state],
-        js=JS_SAVE_AUTH,
-    )
-
-    refresh_event = refresh_button.click(
-        fn=refresh_action,
-        inputs=[auth_state],
-        outputs=[auth_state, auth_status, auth_feedback],
-    )
-    refresh_event = refresh_event.then(
-        load_sessions,
-        inputs=[auth_state, chat_state],
-        outputs=[chat_state, session_list],
-    )
-    refresh_event = refresh_event.then(
-        load_messages,
-        inputs=[auth_state, chat_state],
-        outputs=[chat_state, chatbot],
-    )
-    refresh_event.then(
-        update_new_session_button,
-        inputs=[auth_state],
-        outputs=[new_session_button],
-    )
-    refresh_event.then(
-        update_user_panel,
-        inputs=[auth_state],
-        outputs=[user_info_md, login_open_button, logout_button],
-    )
-    refresh_event.then(
         None,
         inputs=[auth_state],
         outputs=[auth_state],
@@ -1460,6 +1608,17 @@ with gr.Blocks(css=APP_CSS, analytics_enabled=False) as demo:
         inputs=None,
         outputs=[auth_state],
         js=JS_LOAD_AUTH,
+    )
+    load_event = load_event.then(
+        prepare_auth_state_on_load,
+        inputs=[auth_state],
+        outputs=[auth_state],
+    )
+    load_event = load_event.then(
+        None,
+        inputs=[auth_state],
+        outputs=[auth_state],
+        js=JS_SAVE_AUTH,
     )
     load_event = load_event.then(
         auth_status_output,

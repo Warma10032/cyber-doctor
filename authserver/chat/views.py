@@ -13,6 +13,15 @@ from core.jwt_service import decode_token, TokenError
 from users.models import User
 
 from .models import Conversation, Message, ModelInfo
+from .cache import (
+    append_cached_message,
+    get_cached_messages,
+    get_cached_sessions,
+    set_cached_messages,
+    set_cached_sessions,
+    update_cached_session,
+    upsert_cached_session,
+)
 
 
 def _json_response(data: Any, *, status: int = 200) -> JsonResponse:
@@ -54,6 +63,7 @@ def _conversation_to_dict(conv: Conversation) -> Dict[str, Any]:
     return {
         "conversation_id": conv.conversation_id,
         "uid": conv.user_id,
+        "title": conv.title or "",
         "created_at": conv.created_at.isoformat(),
         "updated_at": conv.updated_at.isoformat(),
     }
@@ -74,10 +84,16 @@ def _message_to_dict(msg: Message) -> Dict[str, Any]:
 @require_http_methods(["GET", "POST"])
 def sessions_view(request: HttpRequest) -> JsonResponse:
     user: User = request.user  # type: ignore[attr-defined]
+    user_id = str(user.uid)
 
     if request.method == "GET":
+        cached = get_cached_sessions(user_id)
+        if cached is not None:
+            return _json_response({"sessions": cached})
         conversations = Conversation.objects.filter(user=user)
-        return _json_response({"sessions": [_conversation_to_dict(conv) for conv in conversations]})
+        serialized = [_conversation_to_dict(conv) for conv in conversations]
+        set_cached_sessions(user_id, serialized)
+        return _json_response({"sessions": serialized})
 
     try:
         payload = _parse_json(request)
@@ -85,21 +101,25 @@ def sessions_view(request: HttpRequest) -> JsonResponse:
         return _json_response({"detail": str(exc)}, status=400)
 
     conversation_id = payload.get("conversation_id")
+    raw_title = (payload.get("title") or "").strip()
+    if len(raw_title) > 100:
+        return _json_response({"detail": "title 最长 100 个字符"}, status=400)
+
+    create_kwargs = {"user": user, "title": raw_title}
     if conversation_id:
-        conversation = Conversation.objects.create(
-            conversation_id=conversation_id,
-            user=user,
-        )
-    else:
-        conversation = Conversation.objects.create(user=user)
-    return _json_response(_conversation_to_dict(conversation), status=201)
+        create_kwargs["conversation_id"] = conversation_id
+    conversation = Conversation.objects.create(**create_kwargs)
+    serialized = _conversation_to_dict(conversation)
+    upsert_cached_session(user_id, serialized)
+    return _json_response(serialized, status=201)
 
 
 @csrf_exempt
 @jwt_required
-@require_http_methods(["GET", "POST"])
-def messages_view(request: HttpRequest, conversation_id: str) -> JsonResponse:
+@require_http_methods(["GET", "PATCH"])
+def session_detail_view(request: HttpRequest, conversation_id: str) -> JsonResponse:
     user: User = request.user  # type: ignore[attr-defined]
+    user_id = str(user.uid)
 
     try:
         conversation = Conversation.objects.get(conversation_id=conversation_id, user=user)
@@ -107,8 +127,43 @@ def messages_view(request: HttpRequest, conversation_id: str) -> JsonResponse:
         return _json_response({"detail": "Conversation not found"}, status=404)
 
     if request.method == "GET":
+        return _json_response(_conversation_to_dict(conversation))
+
+    try:
+        payload = _parse_json(request)
+    except ValueError as exc:
+        return _json_response({"detail": str(exc)}, status=400)
+
+    new_title = (payload.get("title") or "").strip()
+    if len(new_title) > 100:
+        return _json_response({"detail": "title 最长 100 个字符"}, status=400)
+
+    Conversation.objects.filter(pk=conversation.pk).update(title=new_title)
+    conversation.title = new_title
+    update_cached_session(user_id, conversation.conversation_id, title=new_title)
+    return _json_response(_conversation_to_dict(conversation))
+
+
+@csrf_exempt
+@jwt_required
+@require_http_methods(["GET", "POST"])
+def messages_view(request: HttpRequest, conversation_id: str) -> JsonResponse:
+    user: User = request.user  # type: ignore[attr-defined]
+    user_id = str(user.uid)
+
+    try:
+        conversation = Conversation.objects.get(conversation_id=conversation_id, user=user)
+    except Conversation.DoesNotExist:
+        return _json_response({"detail": "Conversation not found"}, status=404)
+
+    if request.method == "GET":
+        cached = get_cached_messages(user_id, conversation_id)
+        if cached is not None:
+            return _json_response({"messages": cached})
         messages = conversation.messages.select_related("model")
-        return _json_response({"messages": [_message_to_dict(msg) for msg in messages]})
+        serialized = [_message_to_dict(msg) for msg in messages]
+        set_cached_messages(user_id, conversation_id, serialized)
+        return _json_response({"messages": serialized})
 
     try:
         payload = _parse_json(request)
@@ -141,6 +196,16 @@ def messages_view(request: HttpRequest, conversation_id: str) -> JsonResponse:
     )
 
     # 更新会话更新时间
-    Conversation.objects.filter(pk=conversation.pk).update(updated_at=timezone.now())
+    now = timezone.now()
+    Conversation.objects.filter(pk=conversation.pk).update(updated_at=now)
+    conversation.updated_at = now
 
-    return _json_response(_message_to_dict(message), status=201)
+    serialized_message = _message_to_dict(message)
+    append_cached_message(user_id, conversation.conversation_id, serialized_message)
+    update_cached_session(
+        user_id,
+        conversation.conversation_id,
+        updated_at=conversation.updated_at.isoformat(),
+    )
+
+    return _json_response(serialized_message, status=201)

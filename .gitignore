@@ -45,3 +45,5 @@ Thumbs.db
 # Keep .env out of repo (already present but reinforce)
 .env.local
 .env.*.local
+
+config/config-web.yaml

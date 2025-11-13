@@ -39,6 +39,7 @@ class Conversation(models.Model):
         default=generate_conversation_id,
         editable=False,
     )
+    title = models.CharField(max_length=100, blank=True, default="")
     user = models.ForeignKey(
         User,
         db_column="uid",

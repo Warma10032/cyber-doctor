@@ -13,8 +13,8 @@ class ModelInfoAdmin(admin.ModelAdmin):
 
 @admin.register(Conversation)
 class ConversationAdmin(admin.ModelAdmin):
-    list_display = ("conversation_id", "user", "created_at", "updated_at")
-    search_fields = ("conversation_id", "user__account", "user__uid")
+    list_display = ("conversation_id", "title", "user", "created_at", "updated_at")
+    search_fields = ("conversation_id", "title", "user__account", "user__uid")
     readonly_fields = ("created_at", "updated_at")
 
 
