@@ -6,16 +6,15 @@ from qa.function_tool import map_question_to_function
 from qa.purpose_type import userPurposeType
 
 
-def get_answer(
-    question: str, history: List[List | None] = None, question_type=None, image_url=None
-) -> Tuple[Any, userPurposeType]:
-    """
-    根据问题类型调用对应的函数获取结果
-    """
-
+# qa/answer.py
+def get_answer(question, chatbot, question_type, image_url):
     function = map_question_to_function(question_type)
-
-    args = [question_type, question, history, image_url]
+    args = [question_type, question, chatbot, image_url]  # 注意：history 应该是 chatbot
     result = function(*args)
+    
+    # 统一返回格式：(内容, 类型)
+    if isinstance(result, tuple):
+        return result
+    else:
+        return (result, question_type)  # ← 确保总是元组
 
-    return result

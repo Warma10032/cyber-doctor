@@ -13,3 +13,37 @@ data/
 user_data/
 config/config-local.yaml
 project_structure.txt
+
+# Virtual environment or local Python installs
+cyber/
+venv/
+env/
+
+# Ignore Python bytecode and caches
+*.py[cod]
+*.pyo
+*.pyd
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# SQLite local DBs
+*.sqlite3
+authserver/db.sqlite3
+
+# Logs
+*.log
+
+# macOS files
+.DS_Store
+
+# Windows thumbnail cache
+Thumbs.db
+
+# Keep .env out of repo (already present but reinforce)
+.env.local
+.env.*.local
+
+config/config-web.yaml

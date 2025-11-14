@@ -27,7 +27,7 @@ def parse_question(question: str, image_url=None) -> userPurposeType:
     if ("ppt" in question or "PPT" in question or "PPT" in question) and ("生成" in question or "制作" in question):
         return purpose_map["PPT生成"]
     
-    if image_url is not None:
+    if image_url and len(image_url) > 0:
         return purpose_map["图片描述"]
 
     # 在这个函数中我们使用大模型去判断问题类型
