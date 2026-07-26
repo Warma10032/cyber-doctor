@@ -21,6 +21,7 @@ from audio.audio_extract import (
 from audio.audio_generate import audio_generate
 from model.KG.search_service import search
 from Internet.Internet_chain import InternetSearchChain
+from Internet.youcom_search import research_news as youcom_research
 from kg.Graph import GraphDao
 from config.config import Config
 from qa.purpose_type import userPurposeType
@@ -263,6 +264,21 @@ def process_InternetSearch_tool(
     return (response, question_type, links, success)
 
 
+# 处理深度研究问题的函数
+def YoucomResearch_tool(
+    question_type: userPurposeType,
+    question: str,
+    history: List[List | None] = None,
+    image_url=None,
+):
+    result = youcom_research(question, research_effort="standard")
+    response = Clientfactory().get_client().chat_with_ai_stream(
+        f"根据以下深度研究结果回答问题：\n{result}\n\n问题：{question}",
+        history,
+    )
+    return (response, question_type)
+
+
 QUESTION_TO_FUNCTION = {
     userPurposeType.text: process_text_tool,
     userPurposeType.RAG: RAG_tool,
@@ -274,6 +290,7 @@ QUESTION_TO_FUNCTION = {
     userPurposeType.Docx: process_docx_tool,
     userPurposeType.Video: process_text_video_tool,
     userPurposeType.KnowledgeGraph: KG_tool,
+    userPurposeType.DeepResearch: YoucomResearch_tool,
 }
 
 

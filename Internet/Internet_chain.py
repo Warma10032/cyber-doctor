@@ -1,5 +1,6 @@
 from Internet.Internet_prompt import extract_question
 from Internet.retrieve_Internet import retrieve_html
+from Internet.youcom_search import search_news as youcom_search
 from client.clientfactory import Clientfactory
 from env import get_app_root
 
@@ -8,7 +9,6 @@ import os
 import requests
 import shutil
 import threading
-from typing import List
 from bs4 import BeautifulSoup
 from urllib3.exceptions import InsecureRequestWarning
 
@@ -27,20 +27,29 @@ def InternetSearchChain(question, history):
 
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-    threads = []
+    # Try You.com Search first, fall back to Bing/Baidu scraping
+    youcom_result = try_youcom_search(whole_question)
+    if youcom_result is not None:
+        links = youcom_result.get("links", {})
+        if youcom_result.get("has_files"):
+            docs, _context = retrieve_html(question)
+            prompt = f"根据你现有的知识，辅助以搜索到的文件资料：\n{_context}\n 回答问题：\n{question}\n 尽可能多的覆盖到文件资料"
+        else:
+            prompt = youcom_result.get("response", question)
+        response = Clientfactory().get_client().chat_with_ai_stream(prompt)
+        return response, links, youcom_result.get("has_files", False)
+
+    # Fall back to Bing/Baidu scraping
     links = {}
-
-    # 为每个问题创建单独的线程
-    for question in question_list:
-        # 每个线程执行搜索操作
-        thread = threading.Thread(target=search_bing, args=(question, links, 3))
+    threads = []
+    for q in question_list:
+        thread = threading.Thread(target=search_bing, args=(q, links, 3))
         threads.append(thread)
         thread.start()
-        thread = threading.Thread(target=search_baidu, args=(question, links, 3))
+        thread = threading.Thread(target=search_baidu, args=(q, links, 3))
         threads.append(thread)
         thread.start()
 
-    # 等待所有线程完成
     for thread in threads:
         thread.join()
 
@@ -53,6 +62,45 @@ def InternetSearchChain(question, history):
     response = Clientfactory().get_client().chat_with_ai_stream(prompt)
 
     return response, links, has_html_files(_SAVE_PATH)
+
+
+def try_youcom_search(question: str) -> dict | None:
+    """Try You.com Search. Returns dict with response/links/has_files or None if unavailable."""
+    from env import get_env_value
+    if not get_env_value("YOUCOM_API_KEY"):
+        return None
+
+    try:
+        result = youcom_search(question, count=10)
+    except Exception:
+        return None
+
+    if result.startswith("You.com") or result.startswith("No results"):
+        return None
+
+    # Write synthetic HTML files so retrieve_html下游 can process them
+    links = {}
+    if result and not result.startswith("No results"):
+        lines = result.split("\n\n")
+        for i, line in enumerate(lines):
+            if line.startswith("["):
+                parts = line.split("\n")
+                if len(parts) >= 2:
+                    title = parts[0]
+                    url_line = next((p for p in parts if p.startswith("   URL:")), None)
+                    if url_line:
+                        url = url_line.replace("   URL:", "").strip()
+                        filename = f"{_SAVE_PATH}/youcom_result_{i}.html"
+                        content = f"<html><body><h1>{title}</h1><p>{line}</p></body></html>"
+                        with open(filename, "w", encoding="utf-8") as f:
+                            f.write(content)
+                        links[url] = title
+
+    return {
+        "response": result,
+        "links": links,
+        "has_files": bool(links),
+    }
 
 
 def search_bing(query, links, num_results=3):
@@ -117,7 +165,7 @@ def search_baidu(query, links, num_results=3):
     search_url = f"https://www.baidu.com/s?wd={query}"  # 百度搜索URL
 
     flag = 0
-     # 禁用 SSL 验证的警告
+    # 禁用 SSL 验证的警告
     response = requests.get(search_url, headers=headers, verify=False)
 
     if response.status_code == 200:
@@ -153,7 +201,7 @@ def search_baidu(query, links, num_results=3):
 
         # 检查是否达到了期望的结果数
         if flag < num_results:
-            print("访问百度失败，请检查网络代理制")
+            print("访问百度失败，请检查网络代理")
     else:
         print("Error: ", response.status_code)
 

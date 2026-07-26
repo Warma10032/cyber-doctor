@@ -13,6 +13,7 @@ class userPurposeType(Enum):
     InternetSearch = 8 #网络搜索
     Docx = 9   #生成word文件
     KnowledgeGraph = 10 #基于知识图谱的问答
+    DeepResearch = 11   #深度研究
  
   
 purpose_map={
@@ -28,5 +29,6 @@ purpose_map={
 "Word生成":userPurposeType.Docx,
 "网络搜索":userPurposeType.InternetSearch,
 "基于知识图谱":userPurposeType.KnowledgeGraph,
+"深度研究":userPurposeType.DeepResearch,
 }
 
