@@ -4,7 +4,7 @@ import requests
 
 
 YOUCOM_SEARCH_URL = "https://ydc-index.io/v1/search"
-YOUCOM_RESEARCH_URL = "https://ydc-index.io/v1/research"
+YOUCOM_RESEARCH_URL = "https://api.you.com/v1/research"
 
 
 def _get_api_key() -> str:
@@ -18,7 +18,7 @@ def search_news(query: str, count: int = 10) -> str:
 
     Args:
         query: Search query string
-        count: Number of results (1-20)
+        count: Number of results (1-100)
 
     Returns:
         Formatted string of search results or error message
@@ -34,7 +34,7 @@ def search_news(query: str, count: int = 10) -> str:
         "Accept": "application/json",
         "X-API-Key": api_key,
     }
-    payload = {"query": query, "count": min(max(count, 1), 20)}
+    payload = {"query": query, "count": min(max(count, 1), 100)}
 
     try:
         response = requests.post(
@@ -60,7 +60,18 @@ def search_news(query: str, count: int = 10) -> str:
     except Exception:
         return "You.com Search returned non-JSON response"
 
-    results = data.get("results", [])
+    raw_results = data.get("results", {})
+    if isinstance(raw_results, dict):
+        results = []
+        for section in ("web", "news"):
+            entries = raw_results.get(section, [])
+            if isinstance(entries, list):
+                results.extend(entry for entry in entries if isinstance(entry, dict))
+    elif isinstance(raw_results, list):
+        results = [entry for entry in raw_results if isinstance(entry, dict)]
+    else:
+        return "You.com Search returned an invalid results payload"
+
     if not results:
         return f"No results found for: {query}"
 
@@ -99,6 +110,7 @@ def research_news(query: str, research_effort: str = "standard") -> str:
 
     headers = {
         "Accept": "application/json",
+        "Content-Type": "application/json",
         "X-API-Key": api_key,
     }
     payload = {"input": query, "research_effort": research_effort}
@@ -127,8 +139,14 @@ def research_news(query: str, research_effort: str = "standard") -> str:
     except Exception:
         return "You.com Research returned non-JSON response"
 
-    content = data.get("content", "")
-    sources = data.get("sources", [])
+    output = data.get("output", {})
+    if not isinstance(output, dict):
+        return "You.com Research returned an invalid response payload"
+
+    content = output.get("content", "")
+    sources = output.get("sources", [])
+    if not isinstance(sources, list):
+        sources = []
 
     lines = []
     if content:

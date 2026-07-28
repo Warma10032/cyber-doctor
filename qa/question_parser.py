@@ -18,6 +18,9 @@ def parse_question(question: str, image_url=None) -> userPurposeType:
     if "根据知识图谱" in question:
         return purpose_map["基于知识图谱"]
 
+    if "深度研究" in question:
+        return purpose_map["深度研究"]
+
     if "搜索" in question:
         return purpose_map["网络搜索"]
     
@@ -45,6 +48,8 @@ def parse_question(question: str, image_url=None) -> userPurposeType:
         return purpose_map["Word生成"]
     if response == "音频生成" and len(question) > 0:
         return purpose_map["音频生成"]
+    if response == "深度研究" and len(question) > 0:
+        return purpose_map["深度研究"]
     if response == "文本生成":
         return purpose_map["文本生成"]
     return purpose_map["其他"]

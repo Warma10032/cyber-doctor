@@ -182,6 +182,7 @@ def grodio_view(chatbot, chat_input):
         answer[1] == userPurposeType.text
         or answer[1] == userPurposeType.RAG
         or answer[1] == userPurposeType.KnowledgeGraph
+        or answer[1] == userPurposeType.DeepResearch
     ):
         # 流式输出
         for chunk in answer[0]:
@@ -307,6 +308,7 @@ def gradio_audio_view(chatbot, audio_input):
         answer[1] == userPurposeType.text
         or answer[1] == userPurposeType.RAG
         or answer[1] == userPurposeType.KnowledgeGraph
+        or answer[1] == userPurposeType.DeepResearch
     ):
         # 语音输出
         for chunk in answer[0]:
@@ -466,6 +468,7 @@ examples = [
     {"text": "糖尿病的常见症状有哪些？", "files": []},
     {"text": "用语音重新回答我一次", "files": []},
     {"text": "帮我搜索一下养生知识", "files": []},
+    {"text": "请深度研究糖尿病治疗的最新进展", "files": []},
         {"text": "帮我生成一张老人练太极图片", "files": []},
     {
         "text": "帮我生成一份用于科普糖尿病发病原因，症状，治疗药物，预防措施的PPT",
